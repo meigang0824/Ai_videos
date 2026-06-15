@@ -1,0 +1,16 @@
+.venv
+__pycache__
+*.pyc
+.DS_Store
+.env
+.env.*
+app_ui/node_modules
+backend/storage/tmp
+backend/storage/uploads
+backend/storage/*.sqlite3
+backend/storage/auth_secret.key
+backend/storage/service_config.json
+backend/storage/task_store.json
+outputs
+voices
+*.log

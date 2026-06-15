@@ -1,0 +1,84 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      ALIYUN_OSS_ACCESS_KEY_ID: "${ALIYUN_OSS_ACCESS_KEY_ID:-}"
+      ALIYUN_OSS_ACCESS_KEY_SECRET: "${ALIYUN_OSS_ACCESS_KEY_SECRET:-}"
+    ports:
+      - "${PORT:-8010}:8010"
+    volumes:
+      - cosy_storage:/app/backend/storage
+      - cosy_outputs:/app/outputs
+      - cosy_voices:/app/voices
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      worker:
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file:
+      - .env
+    environment:
+      ALIYUN_OSS_ACCESS_KEY_ID: "${ALIYUN_OSS_ACCESS_KEY_ID:-}"
+      ALIYUN_OSS_ACCESS_KEY_SECRET: "${ALIYUN_OSS_ACCESS_KEY_SECRET:-}"
+    command: >
+      sh -c "alembic upgrade head &&
+      celery -A pipeline.celery_app:celery_app worker
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-2}"
+    volumes:
+      - cosy_storage:/app/backend/storage
+      - cosy_outputs:/app/outputs
+      - cosy_voices:/app/voices
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-cosyvoice}"
+      POSTGRES_USER: "${POSTGRES_USER:-cosyvoice}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-cosyvoice}"
+    volumes:
+      - cosy_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cosyvoice} -d ${POSTGRES_DB:-cosyvoice}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - cosy_redis:/data
+    restart: unless-stopped
+
+volumes:
+  cosy_storage:
+  cosy_outputs:
+  cosy_voices:
+  cosy_redis:
+  cosy_postgres:
