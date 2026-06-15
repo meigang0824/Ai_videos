@@ -939,7 +939,6 @@ function App() {
     }
     if (selectedVoice?.ref_wav) {
       payload.voice_ref_wav = selectedVoice.ref_wav;
-      payload.voice_ref_text = selectedVoice.ref_text || '';
     }
 
     setTts({ state: 'loading', message: '正在生成配音' });
@@ -1003,8 +1002,7 @@ function App() {
       taskId: sampleTaskId,
       text: '大家好，这是当前音色的试听效果。请听一下声音是否清晰自然，语气是否符合你的口播风格。',
       speed: Number(ttsSpeed) || 1,
-      voice_ref_wav: selectedVoice.ref_wav,
-      voice_ref_text: selectedVoice.ref_text || ''
+      voice_ref_wav: selectedVoice.ref_wav
     };
 
     setVoicePreview({ state: 'loading', message: '正在检查试听样音' });
