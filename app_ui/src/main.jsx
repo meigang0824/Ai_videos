@@ -328,6 +328,21 @@ async function putJSON(path, payload) {
   return data;
 }
 
+async function patchJSON(path, payload) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(data.detail || `请求失败：${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
+  return data;
+}
+
 async function deleteJSON(path) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'DELETE',
@@ -811,6 +826,8 @@ function App() {
   const [rewrite, setRewrite] = useState({ state: 'idle', message: '' });
   const [tts, setTts] = useState({ state: 'idle', message: '' });
   const [voiceUpload, setVoiceUpload] = useState({ state: 'idle', message: '' });
+  const [voiceManage, setVoiceManage] = useState({ state: 'idle', message: '' });
+  const [voiceNameDraft, setVoiceNameDraft] = useState('');
   const [voicePreview, setVoicePreview] = useState({ state: 'idle', message: '' });
   const [voicePreviewAudio, setVoicePreviewAudio] = useState(null);
   const [ttsSpeed, setTtsSpeed] = useState(1);
@@ -940,6 +957,10 @@ function App() {
     () => voices.find(v => v.id === voiceId),
     [voices, voiceId]
   );
+
+  useEffect(() => {
+    setVoiceNameDraft(selectedVoice?.name || '');
+  }, [selectedVoice?.id, selectedVoice?.name]);
 
   useEffect(() => {
     setVoicePreview({ state: 'idle', message: '' });
@@ -1204,8 +1225,10 @@ function App() {
         || nextVoices.find(v => v.id === 'my_voice')
         || nextVoices[0];
       if (preferred) setVoiceId(preferred.id);
+      else setVoiceId('default');
     } catch {
       setVoices([]);
+      setVoiceId('default');
     }
   }
 
@@ -1495,6 +1518,53 @@ function App() {
       refreshStorage();
     } catch (err) {
       setVoiceUpload({ state: 'error', message: err.message });
+    }
+  }
+
+  async function handleVoiceRename() {
+    if (!selectedVoice?.id) {
+      setVoiceManage({ state: 'error', message: '请先选择音色' });
+      return;
+    }
+    const name = voiceNameDraft.trim();
+    if (!name) {
+      setVoiceManage({ state: 'error', message: '音色名称不能为空' });
+      return;
+    }
+    if (name === selectedVoice.name) {
+      setVoiceManage({ state: 'idle', message: '' });
+      return;
+    }
+    setVoiceManage({ state: 'loading', message: '正在保存音色名称' });
+    try {
+      const data = await patchJSON(`/api/v1/voices/${encodeURIComponent(selectedVoice.id)}`, { name });
+      await refreshVoices(data.voice?.id || selectedVoice.id);
+      setVoiceManage({ state: 'done', message: '音色名称已保存' });
+    } catch (err) {
+      setVoiceManage({ state: 'error', message: err.message });
+    }
+  }
+
+  async function handleVoiceDelete() {
+    if (!selectedVoice?.id) {
+      setVoiceManage({ state: 'error', message: '请先选择音色' });
+      return;
+    }
+    if (!window.confirm(`确定删除音色「${selectedVoice.name || selectedVoice.id}」吗？删除后需要重新导入录音。`)) {
+      return;
+    }
+    setVoiceManage({ state: 'loading', message: '正在删除音色' });
+    try {
+      await deleteJSON(`/api/v1/voices/${encodeURIComponent(selectedVoice.id)}`);
+      setVoicePreview({ state: 'idle', message: '' });
+      setVoicePreviewAudio(null);
+      setAudio(null);
+      setTts({ state: 'idle', message: '' });
+      await refreshVoices('my_voice');
+      setVoiceManage({ state: 'done', message: '音色已删除' });
+      refreshStorage();
+    } catch (err) {
+      setVoiceManage({ state: 'error', message: err.message });
     }
   }
 
@@ -2050,6 +2120,37 @@ function App() {
             <div className="audio-card voice-note">
               <p><UserRound size={16}/>当前音色</p>
               <strong>{selectedVoice?.name || '默认音色'}</strong>
+              <div className="voice-manage-form">
+                <label>
+                  <span>音色名称</span>
+                  <input
+                    value={voiceNameDraft}
+                    placeholder="给这个音色起个名字"
+                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                    onChange={event => {
+                      setVoiceNameDraft(event.target.value);
+                      setVoiceManage({ state: 'idle', message: '' });
+                    }}
+                  />
+                </label>
+                <div className="voice-manage-actions">
+                  <button
+                    type="button"
+                    onClick={handleVoiceRename}
+                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                  >
+                    {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}保存名称
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={handleVoiceDelete}
+                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                  >
+                    <Trash2 size={15}/>删除音色
+                  </button>
+                </div>
+              </div>
               <div className="voice-preview-actions">
                 <button type="button" onClick={handleVoiceReferencePreview}>
                   <Play size={15}/>试听原音
@@ -2086,6 +2187,7 @@ function App() {
           <OperationHint show={voicePreview.state === 'loading'}>
             试听样音会调用外部声音克隆接口，同一音色同一语速生成后会自动复用。
           </OperationHint>
+	          <StatusLine state={voiceManage.state} text={voiceManage.message}/>
 	          <StatusLine state={voiceUpload.state} text={voiceUpload.message}/>
 	          <button className="primary full" onClick={handleTts} disabled={tts.state === 'loading'}>
 	            {tts.state === 'loading' ? <Loader2 size={18}/> : <Mic2 size={18}/>}根据音色生成语音

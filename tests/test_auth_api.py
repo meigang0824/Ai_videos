@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 import api_server
@@ -210,3 +212,32 @@ def test_upload_voice_persists_voice_name_in_database(tmp_path, monkeypatch):
     names = [item["name"] for item in listed_voices]
     assert voice["name"] in names
     assert all(item["kind"] == "local" for item in listed_voices)
+
+    renamed = client.patch(
+        f"/api/v1/voices/{voice['id']}",
+        headers=headers,
+        json={"name": "成交男声"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["voice"]["name"] == "成交男声"
+    assert voice_store.get_voice(voice["id"])["name"] == "成交男声"
+
+    blank_name = client.patch(
+        f"/api/v1/voices/{voice['id']}",
+        headers=headers,
+        json={"name": "  "},
+    )
+    assert blank_name.status_code == 400
+
+    ref_path = Path(stored["ref_wav"])
+    assert ref_path.exists()
+    deleted = client.delete(f"/api/v1/voices/{voice['id']}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert deleted.json()["deleted_file"] is True
+    assert voice_store.get_voice(voice["id"]) is None
+    assert not ref_path.exists()
+
+    listed_after_delete = client.get("/api/v1/voices", headers=headers)
+    assert listed_after_delete.status_code == 200
+    assert all(item["id"] != voice["id"] for item in listed_after_delete.json()["voices"])

@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from pipeline.config import BASE_DIR, VOICE_DIR
 from pipeline.database import create_app_engine, ensure_schema, voices_table
@@ -101,6 +101,27 @@ class VoiceStore:
         with self.lock, self.engine.connect() as conn:
             row = conn.execute(query).first()
         return _mapping(row) if row else None
+
+    def update_voice_name(self, voice_id: str, name: str, user_id: str | None = None) -> dict[str, Any] | None:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            return None
+        query = update(voices_table).where(voices_table.c.id == voice_id).values(name=clean_name)
+        if user_id:
+            query = query.where(voices_table.c.user_id == user_id)
+        with self.lock, self.engine.begin() as conn:
+            result = conn.execute(query)
+        if result.rowcount < 1:
+            return None
+        return self.get_voice(voice_id, user_id=user_id)
+
+    def delete_voice(self, voice_id: str, user_id: str | None = None) -> bool:
+        query = delete(voices_table).where(voices_table.c.id == voice_id)
+        if user_id:
+            query = query.where(voices_table.c.user_id == user_id)
+        with self.lock, self.engine.begin() as conn:
+            result = conn.execute(query)
+        return result.rowcount > 0
 
 
 voice_store = VoiceStore()

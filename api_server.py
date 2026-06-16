@@ -145,6 +145,10 @@ class TtsPayload(BaseModel):
     speed: float = 1.0
 
 
+class VoiceNamePayload(BaseModel):
+    name: str
+
+
 class VideoPayload(BaseModel):
     taskId: str | None = None
     videoUrl: str | None = None
@@ -337,6 +341,26 @@ def _find_user_voice_by_path(path: Path, user: dict[str, Any]) -> dict[str, Any]
         if _voice_visible_to_user(item, user) and ref_path == resolved:
             return item
     return None
+
+
+def _delete_local_voice_file(item: dict[str, Any]) -> bool:
+    raw_path = item.get("ref_wav") or ""
+    if not raw_path:
+        return False
+    try:
+        path = Path(raw_path).expanduser().resolve()
+        voice_root = VOICE_DIR.resolve()
+    except OSError:
+        return False
+    if voice_root not in path.parents and path != voice_root:
+        return False
+    try:
+        if path.exists() and path.is_file():
+            path.unlink()
+            return True
+    except OSError:
+        return False
+    return False
 
 
 def _local_admin() -> dict[str, Any]:
@@ -1510,6 +1534,34 @@ def voices(request: Request):
             }
         )
     return {"voices": local_items}
+
+
+@app.patch("/api/v1/voices/{voice_id}")
+def update_voice(voice_id: str, payload: VoiceNamePayload, request: Request):
+    user = _require_user(request)
+    item = _find_user_voice(voice_id, user)
+    if not item:
+        raise HTTPException(status_code=404, detail="音色不存在")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="音色名称不能为空")
+    if len(name) > 50:
+        raise HTTPException(status_code=400, detail="音色名称不能超过 50 个字符")
+    updated = voice_store.update_voice_name(voice_id, name, user_id=_voice_owner_id(item))
+    if not updated:
+        raise HTTPException(status_code=404, detail="音色不存在")
+    return {"voice": updated}
+
+
+@app.delete("/api/v1/voices/{voice_id}")
+def delete_voice(voice_id: str, request: Request):
+    user = _require_user(request)
+    item = _find_user_voice(voice_id, user)
+    if not item:
+        raise HTTPException(status_code=404, detail="音色不存在")
+    deleted_file = _delete_local_voice_file(item)
+    deleted = voice_store.delete_voice(voice_id, user_id=_voice_owner_id(item))
+    return {"deleted": deleted, "deleted_file": deleted_file}
 
 
 @app.get("/api/v1/voices/{voice_id}/audio")
