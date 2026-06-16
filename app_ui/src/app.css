@@ -624,6 +624,25 @@ select,
   animation: spin 1s linear infinite;
 }
 
+.operation-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 8px;
+  border: 1px solid rgba(127, 177, 255, .22);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #a9caff;
+  background: rgba(76, 141, 255, .08);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.operation-hint svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .rewrite-config {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1823,6 +1842,22 @@ select,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.usage-card em {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-card.busy {
+  border-color: rgba(76, 141, 255, .35);
+  background: rgba(76, 141, 255, .08);
 }
 
 .history-item {

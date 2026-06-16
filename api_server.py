@@ -82,6 +82,33 @@ app.add_middleware(
 )
 
 
+def _task_status_counts() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for task in task_store.list_tasks(limit=200):
+        status = str(task.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _recover_queued_tasks():
+    queued = [task for task in task_store.list_tasks(limit=200) if task.get("status") == "queued"]
+    if not queued:
+        return
+    for task in queued:
+        task_id = task.get("task_id")
+        if not task_id:
+            continue
+        try:
+            job_runner.submit(task_id, lambda task_id=task_id: _run_task(task_id))
+        except Exception as exc:
+            _fail(task_id, exc)
+
+
+@app.on_event("startup")
+def recover_queued_tasks_on_startup():
+    _recover_queued_tasks()
+
+
 class AuthPayload(BaseModel):
     username: str
     password: str
@@ -1058,6 +1085,7 @@ def app_config():
         "default_background_video": DEFAULT_BACKGROUND_VIDEO,
         "auth": {"required": AUTH_REQUIRED, "has_users": auth_store.user_count() > 0},
         "jobs": job_runner.status(),
+        "task_status": _task_status_counts(),
         "object_storage": object_storage.status(),
     }
 
@@ -1069,6 +1097,7 @@ def health():
         "name": APP_NAME,
         "mode": "api-only",
         "jobs": job_runner.status(),
+        "task_status": _task_status_counts(),
         "object_storage": object_storage.status(),
     }
 
@@ -1076,7 +1105,7 @@ def health():
 @app.get("/api/v1/job-runner")
 def job_runner_status(request: Request):
     _require_admin(request)
-    return {"jobs": job_runner.status()}
+    return {"jobs": job_runner.status(), "task_status": _task_status_counts()}
 
 
 @app.post("/api/v1/auth/register")
@@ -1589,6 +1618,7 @@ def storage():
     return {
         **sections,
         "jobs": job_runner.status(),
+        "task_status": _task_status_counts(),
         "object_storage": object_storage.status(),
         "total_bytes": sum(item["bytes"] for item in sections.values()),
         "total_files": sum(item["files"] for item in sections.values()),

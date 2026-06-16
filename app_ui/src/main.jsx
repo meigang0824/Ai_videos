@@ -257,6 +257,11 @@ function StatusLine({ state, text }) {
   return <div className={`status-line ${state}`}>{icon}<span>{text}</span></div>;
 }
 
+function OperationHint({ show, children }) {
+  if (!show) return null;
+  return <div className="operation-hint"><Clock3 size={15}/><span>{children}</span></div>;
+}
+
 function asSeconds(ms) {
   if (!ms) return '-';
   return `${(ms / 1000).toFixed(1)}s`;
@@ -767,6 +772,7 @@ async function runBackgroundJob(path, payload, onProgress) {
   const { data: queued } = await postJSON(path, payload);
   let task = null;
   let transientErrors = 0;
+  let polls = 0;
   while (true) {
     try {
       task = await getJSON(`/api/v1/jobs/${queued.task_id}`);
@@ -790,7 +796,10 @@ async function runBackgroundJob(path, payload, onProgress) {
       throw new Error('任务已取消');
     }
     onProgress?.(task);
-    await sleep(1200);
+    polls += 1;
+    const elapsed = performance.now() - started;
+    const delay = elapsed < 15000 ? 1500 : Math.min(5000, 2200 + polls * 250);
+    await sleep(delay);
   }
 }
 
@@ -883,6 +892,15 @@ function App() {
     notes: ''
   });
   const [realtorCopy, setRealtorCopy] = useState({ state: 'idle', message: '' });
+  const hasActiveWork = [
+    extract,
+    rewrite,
+    realtorCopy,
+    tts,
+    voicePreview,
+    videoEdit,
+    wav2lip
+  ].some(item => item.state === 'loading');
 
   useEffect(() => {
     getJSON('/api/v1/app-config')
@@ -903,6 +921,16 @@ function App() {
   useEffect(() => {
     refreshVoices();
   }, []);
+
+  useEffect(() => {
+    if (!hasActiveWork) return;
+    const timer = window.setInterval(() => {
+      refreshHistory();
+      refreshStorage();
+      refreshUsage();
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveWork]);
 
   useEffect(() => {
     getJSON('/api/v1/rewrite-options')
@@ -988,6 +1016,16 @@ function App() {
     segments: segments.length || 0,
     audioDuration: audio?.duration_sec ? `${audio.duration_sec}s` : '-'
   }), [extractedScript, finalScript, segments, audio]);
+
+  const taskStatus = storageStats?.task_status || {};
+  const queuedTasks = Number(taskStatus.queued || 0);
+  const runningTasks = Number(taskStatus.running || 0);
+  const failedTasks = Number(taskStatus.failed || 0);
+  const workerStatus = storageStats?.jobs || {};
+  const workerLabel = workerStatus.backend === 'celery'
+    ? `${workerStatus.active || 0}/${workerStatus.workers || 0}`
+    : `${workerStatus.running || 0}/${workerStatus.max_workers || 0}`;
+  const queueLabel = `${runningTasks} 运行 · ${queuedTasks} 排队`;
 
   async function refreshHistory() {
     try {
@@ -1182,6 +1220,12 @@ function App() {
   function progressMessage(prefix, task) {
     const percent = Number(task?.progress || 0);
     const message = task?.message || prefix;
+    if (task?.status === 'queued') {
+      return '已进入队列，前面有任务时会自动等待';
+    }
+    if (task?.status === 'running' && /TTS|配音|样音|语音/.test(`${prefix}${message}`)) {
+      return `${message}${percent ? `，${percent}%` : ''}，外部声音克隆可能需要 1-3 分钟`;
+    }
     return `${message}${percent ? `，${percent}%` : ''}`;
   }
 
@@ -2013,6 +2057,9 @@ function App() {
           <button onClick={() => copyText(finalScript)}><Copy size={15}/>复制</button>
         </div>
         <StatusLine state={rewrite.state} text={rewrite.message}/>
+        <OperationHint show={rewrite.state === 'loading'}>
+          AI 改写依赖外部模型，通常 30-90 秒；可以先停留在页面等待结果。
+        </OperationHint>
         </Section>
         </>
         )}
@@ -2064,13 +2111,19 @@ function App() {
               {audio && <a className="download-link" href={audio.audio_url} download><Download size={15}/>下载音频</a>}
             </div>
           </div>
-          <StatusLine state={voicePreview.state} text={voicePreview.message}/>
-          <StatusLine state={voiceUpload.state} text={voiceUpload.message}/>
-          <button className="primary full" onClick={handleTts} disabled={tts.state === 'loading'}>
-            {tts.state === 'loading' ? <Loader2 size={18}/> : <Mic2 size={18}/>}根据音色生成语音
-          </button>
-          <StatusLine state={tts.state} text={tts.message}/>
-        </Section>
+	          <StatusLine state={voicePreview.state} text={voicePreview.message}/>
+          <OperationHint show={voicePreview.state === 'loading'}>
+            试听样音会调用外部声音克隆接口，同一音色同一语速生成后会自动复用。
+          </OperationHint>
+	          <StatusLine state={voiceUpload.state} text={voiceUpload.message}/>
+	          <button className="primary full" onClick={handleTts} disabled={tts.state === 'loading'}>
+	            {tts.state === 'loading' ? <Loader2 size={18}/> : <Mic2 size={18}/>}根据音色生成语音
+	          </button>
+	          <StatusLine state={tts.state} text={tts.message}/>
+          <OperationHint show={tts.state === 'loading'}>
+            配音生成依赖外部 TTS clone 服务，长文案会更慢；排队期间不要重复点击。
+          </OperationHint>
+	        </Section>
 
         <Section num="4" title="视频生成" sub="剪辑成片 · 口型同步" className="video-workflow-section" id="moviepy">
           <div className="module-switch" role="tablist" aria-label="视频生成模式">
@@ -2264,11 +2317,14 @@ function App() {
                               </label>
                             </div>
                         </div>
-                        <button className="primary full" onClick={handleRenderVideo} disabled={videoEdit.state === 'loading'}>
-                          {videoEdit.state === 'loading' ? <Loader2 size={18}/> : <Film size={18}/>}用当前配音成片
-                        </button>
-                        <StatusLine state={videoEdit.state} text={videoEdit.message}/>
-            </div>
+	                        <button className="primary full" onClick={handleRenderVideo} disabled={videoEdit.state === 'loading'}>
+	                          {videoEdit.state === 'loading' ? <Loader2 size={18}/> : <Film size={18}/>}用当前配音成片
+	                        </button>
+	                        <StatusLine state={videoEdit.state} text={videoEdit.message}/>
+                        <OperationHint show={videoEdit.state === 'loading'}>
+                          视频合成会上传素材并等待外部剪辑服务返回，较长视频可能需要几分钟。
+                        </OperationHint>
+	            </div>
           ) : (
             <div className="video-mode-panel wav2lip-section" id="lipsync">
                         <label>人物视频</label>
@@ -2352,11 +2408,14 @@ function App() {
                             </select>
                           </div>
                         </div>
-                        <button className="primary full" onClick={handleGenerateLipSync} disabled={wav2lip.state === 'loading'}>
-                          {wav2lip.state === 'loading' ? <Loader2 size={18}/> : <AudioLines size={18}/>}生成口型同步
-                        </button>
-                        <StatusLine state={wav2lip.state} text={wav2lip.message}/>
-                        <div className="wav2lip-target-note">
+	                        <button className="primary full" onClick={handleGenerateLipSync} disabled={wav2lip.state === 'loading'}>
+	                          {wav2lip.state === 'loading' ? <Loader2 size={18}/> : <AudioLines size={18}/>}生成口型同步
+	                        </button>
+	                        <StatusLine state={wav2lip.state} text={wav2lip.message}/>
+                        <OperationHint show={wav2lip.state === 'loading'}>
+                          口型同步是重任务，建议等待完成后再发起下一次生成。
+                        </OperationHint>
+	                        <div className="wav2lip-target-note">
                           <AudioLines size={18}/>
                           <span>{wav2lipVideo ? '口型同步视频已生成，请在模块 5 预览和下载' : '生成后的口型同步视频会显示在模块 5'}</span>
                         </div>
@@ -2417,11 +2476,17 @@ function App() {
               <span>上传占用</span>
               <strong>{usageStats ? formatBytes(usageStats.upload_bytes || 0) : '-'}</strong>
             </div>
-            <div className="usage-card">
-              <span>本地队列</span>
-              <strong>{storageStats?.jobs ? `${storageStats.jobs.running}/${storageStats.jobs.max_workers}` : '-'}</strong>
-            </div>
-          </div>
+	            <div className="usage-card">
+	              <span>本地队列</span>
+	              <strong>{storageStats?.jobs ? workerLabel : '-'}</strong>
+              <em>{storageStats ? queueLabel : '正在读取'}</em>
+	            </div>
+            <div className={`usage-card ${queuedTasks || runningTasks ? 'busy' : ''}`}>
+              <span>任务状态</span>
+              <strong>{queuedTasks || runningTasks ? `${runningTasks + queuedTasks} 个处理中` : '空闲'}</strong>
+              <em>{failedTasks ? `${failedTasks} 个失败任务可重试` : '没有等待任务'}</em>
+	            </div>
+	          </div>
           <div className="history-list">
             {historyItems.length ? historyItems.map(item => (
               <div className="history-item" key={item.task_id}>
