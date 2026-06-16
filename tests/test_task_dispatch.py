@@ -57,16 +57,13 @@ def test_rewrite_prompt_keeps_realtor_context():
     assert "改善家庭" in user
 
 
-def test_format_script_lines_keeps_sentences_as_paragraphs():
-    text = "这套房最适合想改善又不想增加太多通勤成本的家庭。老人接送孩子也方便。"
+def test_format_script_lines_keeps_rewrite_as_one_paragraph():
+    text = "这套房最适合想改善又不想增加太多通勤成本的家庭\n老人接送孩子也方便"
 
     formatted = api_server._format_script_lines(text)
 
-    lines = formatted.splitlines()
-    assert lines == [
-        "这套房最适合想改善又不想增加太多通勤成本的家庭。",
-        "老人接送孩子也方便。",
-    ]
+    assert "\n" not in formatted
+    assert formatted == "这套房最适合想改善又不想增加太多通勤成本的家庭。老人接送孩子也方便。"
 
 
 def test_run_task_marks_failed_when_kind_is_unknown(tmp_path, monkeypatch):

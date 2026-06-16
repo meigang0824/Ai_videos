@@ -784,17 +784,18 @@ def _retry_task(task: dict[str, Any], request: Request, background_tasks: Backgr
 
 
 def _format_script_lines(text: str) -> str:
-    paragraphs: list[str] = []
+    sentences: list[str] = []
     for raw_line in re.split(r"[\r\n]+", text or ""):
         line = re.sub(r"\s+", "", raw_line).strip()
         if not line:
             continue
-        parts = re.split(r"(?<=[。！？!?；;])", line)
-        for part in parts:
-            clean = part.strip(" \t，、：:,.")
-            if clean:
-                paragraphs.append(clean)
-    return "\n".join(paragraphs)
+        clean = line.strip(" \t，、：:,.")
+        if not clean:
+            continue
+        if not re.search(r"[。！？!?；;，,]$", clean):
+            clean += "。"
+        sentences.append(clean)
+    return "".join(sentences)
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -811,14 +812,14 @@ def _fast_rewrite(text: str) -> str:
         return ""
     lead = "很多人一开始都忽略了这件事"
     rewritten = [lead, *sentences[:12]]
-    return _format_script_lines("\n".join(rewritten))
+    return _format_script_lines("。".join(rewritten))
 
 
 def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
     system = (
         "你是短视频口播文案改写专家。输出必须是中文口播文案。"
-        "每句话单独一段，可以主动添加逗号、句号、问号、感叹号等中文标点来体现口播停顿。"
-        "不要把一句话硬拆成多行，不要编号，不要标题，不要解释。"
+        "输出一整段文本，不要换行。可以主动添加逗号、句号、问号、感叹号等中文标点来体现口播停顿。"
+        "不要编号，不要标题，不要解释。"
     )
     realtor_context = ""
     if payload.realtor_context:
