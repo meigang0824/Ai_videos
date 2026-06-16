@@ -31,9 +31,10 @@ import './app.css';
 const API_BASE = '';
 const AUTH_TOKEN_KEY = 'cosyvoice_auth_token';
 const TRANSIENT_HTTP_STATUS = new Set([502, 503, 504]);
+const MAX_SCRIPT_LINE_CHARS = 18;
 
 const defaultPrompt = {
-  url: 'https://v.douyin.com/ZhVLsEwjxQA/'
+  url: ''
 };
 
 const FALLBACK_BACKGROUND_VIDEO = '';
@@ -359,6 +360,25 @@ function wrapPreviewCaption(text, maxChars) {
   return lines.join('\n');
 }
 
+function wrapScriptLine(line, maxChars = MAX_SCRIPT_LINE_CHARS) {
+  const clean = (line || '').replace(/\s+/g, '').trim();
+  if (!clean) return [];
+  const lines = [];
+  for (let index = 0; index < clean.length; index += maxChars) {
+    lines.push(clean.slice(index, index + maxChars));
+  }
+  return lines;
+}
+
+function normalizeScriptText(text, splitPattern = /[，。！？、；：,.!?;:]+/g) {
+  return (text || '')
+    .replace(splitPattern, '\n')
+    .split(/\n+/)
+    .flatMap(line => wrapScriptLine(line.replace(/^[，、：:,.]+|[，、：:,.]+$/g, '')))
+    .filter(Boolean)
+    .join('\n');
+}
+
 function buildRealtorSource(form) {
   const fields = [
     ['城市片区', form.area],
@@ -385,6 +405,30 @@ function buildRealtorSource(form) {
     .map(([label, value]) => `${label}：${String(value || '').trim()}`)
     .filter(line => !line.endsWith('：'))
     .join('\n');
+}
+
+function buildRealtorContext(form) {
+  return {
+    area: form.area,
+    community: form.community,
+    propertyType: form.propertyType,
+    dealType: form.dealType,
+    layout: form.layout,
+    size: form.size,
+    price: form.price,
+    decoration: form.decoration,
+    orientation: form.orientation,
+    floor: form.floor,
+    elevator: form.elevator,
+    metro: form.metro,
+    school: form.school,
+    highlights: Array.isArray(form.highlights) ? form.highlights : [],
+    audience: Array.isArray(form.audience) ? form.audience : [],
+    contentDuration: form.contentDuration,
+    style: form.style,
+    callToAction: form.callToAction,
+    notes: form.notes
+  };
 }
 
 function SelectField({ label, options, value, onChange }) {
@@ -1202,13 +1246,7 @@ function App() {
         },
         task => setRewrite({ state: 'loading', message: progressMessage('正在改写文案', task) })
       );
-      let text = data.final_script || '';
-      text = text
-        .replace(/[。！？；;!?]+/g, '\n')
-        .split(/\n+/)
-        .map(line => line.replace(/\s+/g, '').replace(/^[，、：:,.]+|[，、：:,.]+$/g, '').trim())
-        .filter(Boolean)
-        .join('\n');
+      const text = normalizeScriptText(data.final_script || '', /[。！？；;!?]+/g);
       if (!text) {
         throw new Error('改写接口未返回有效文案');
       }
@@ -1234,6 +1272,7 @@ function App() {
 
   async function handleRealtorGenerate() {
     const source = buildRealtorSource(realtorForm);
+    const realtorContext = buildRealtorContext(realtorForm);
     const durationMeta = REALTOR_DURATION_META[realtorForm.contentDuration] || REALTOR_DURATION_META['30秒（约160-220字）'];
     if (!realtorForm.community.trim() && !(realtorForm.highlights || []).length) {
       setRealtorCopy({ state: 'error', message: '请填写楼盘或核心卖点' });
@@ -1245,22 +1284,28 @@ function App() {
         '/api/v1/rewrite/start',
         {
           reference_text: [
-            '你是一名有多年成交经验的资深房产经纪人，请根据房源信息生成专业短视频口播文案。',
-            '文案必须像真人经纪人在讲盘，不要像广告标语，不要堆砌形容词。',
+            '你是一名成交能力很强、表达克制真实的资深房产经纪人，请根据房源信息生成短视频口播文案。',
+            '文案要像一个懂房子的真人经纪人在镜头前说话，不要像广告文案、楼书介绍或AI总结。',
+            '生成前先判断这套房最能打动客户的 3 个成交理由，只围绕这 3 个点展开，不要把所有字段都平铺一遍。',
             '结构要求：',
-            '1. 前 3 秒用客户痛点或稀缺点开场，但不能夸大。',
-            '2. 说明区位、交通、配套或板块价值，给出清晰的购买理由。',
-            '3. 按户型、面积、楼层、装修、采光、税费等维度讲清房源优势。',
-            '4. 明确适合哪类客户，解释为什么适合。',
-            '5. 结尾给出自然的看房或咨询引导。',
-            '专业要求：',
-            '- 用房产行业表达，如板块、配套、通勤、梯户比、采光面、得房率、税费成本、置换改善、总价门槛。',
+            '1. 第一句话必须直接戳中目标客户的真实需求或犹豫点，不能用“今天这套房”“很多客户”这种泛开头。',
+            '2. 第二段用具体生活场景讲清卖点，比如早晚通勤、老人孩子居住、采光通风、收纳动线、看房对比。',
+            '3. 中间只讲 2-3 个关键优势，每个优势都要说明“为什么对客户有用”。',
+            '4. 如果有价格、税费、急售、满五唯一等信息，要转化成客户能听懂的成本或决策价值。',
+            '5. 结尾给出自然行动引导，像经纪人口头邀请，不要喊口号。',
+            '表达要求：',
+            '- 多用短句，像口播，不要长难句。',
+            `- 必须一句一行，每行不超过 ${MAX_SCRIPT_LINE_CHARS} 个汉字，超过就拆成两行。`,
+            '- 少用抽象词，多用具体感受和选择理由。',
+            '- 不要堆砌板块、配套、通勤、梯户比、得房率等行业词；必须用时也要解释成客户利益。',
             '- 如果信息缺失，不要编造具体学校、地铁距离、价格涨幅、收益率。',
-            '- 避免绝对化承诺，比如必涨、稳赚、全城最低、唯一机会。',
+            '- 禁止使用“完美、全面兑现、实打实、安全垫、黄金楼层、红线、闭眼入、稳赚、必涨、全城最低、唯一机会”等夸张或油腻表达。',
+            '- 不要输出标题、编号、项目符号或解释，只输出可直接配音的正文。',
             `- 每句话适合口播，节奏短，信息密度高，整体控制在 ${durationMeta.words}。`,
             '房源信息：',
             source
           ].join('\n'),
+          realtor_context: realtorContext,
           rewrite_engine: 'ai',
           rewrite_style: 'sales',
           rewrite_tone: 'professional',
@@ -1271,13 +1316,7 @@ function App() {
         },
         task => setRealtorCopy({ state: 'loading', message: progressMessage('正在生成房产文案', task) })
       );
-      let text = data.final_script || '';
-      text = text
-        .replace(/[，。！？、；：,.!?;:]+/g, '\n')
-        .split(/\n+/)
-        .map(line => line.replace(/\s+/g, '').trim())
-        .filter(Boolean)
-        .join('\n');
+      const text = normalizeScriptText(data.final_script || '');
       if (!text) {
         throw new Error('文案生成接口未返回有效内容');
       }

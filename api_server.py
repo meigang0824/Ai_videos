@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -44,6 +45,7 @@ FRONTEND_DIST = BASE_DIR / "app_ui" / "dist"
 ALLOWED_AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 ALLOWED_TRANSCRIBE_SUFFIXES = ALLOWED_AUDIO_SUFFIXES | ALLOWED_VIDEO_SUFFIXES
+MAX_SCRIPT_LINE_CHARS = 18
 
 
 def _cors_origins() -> list[str]:
@@ -99,6 +101,7 @@ class ExtractPayload(BaseModel):
 class RewritePayload(BaseModel):
     taskId: str | None = None
     reference_text: str
+    realtor_context: dict[str, Any] | None = None
     rewrite_engine: str = "ai"
     rewrite_style: str = "viral"
     rewrite_tone: str = "natural"
@@ -755,10 +758,20 @@ def _retry_task(task: dict[str, Any], request: Request, background_tasks: Backgr
     raise HTTPException(status_code=400, detail="该任务类型不支持重试")
 
 
+def _wrap_script_line(line: str, max_chars: int = MAX_SCRIPT_LINE_CHARS) -> list[str]:
+    clean = re.sub(r"\s+", "", line or "").strip()
+    if not clean:
+        return []
+    return [clean[index : index + max_chars] for index in range(0, len(clean), max_chars)]
+
+
 def _format_script_lines(text: str) -> str:
     cleaned = re.sub(r"[，。！？、；：,.!?;:]+", "\n", text or "")
     lines = [re.sub(r"\s+", "", line).strip() for line in cleaned.splitlines()]
-    return "\n".join(line for line in lines if line)
+    wrapped: list[str] = []
+    for line in lines:
+        wrapped.extend(_wrap_script_line(line))
+    return "\n".join(line for line in wrapped if line)
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -781,8 +794,11 @@ def _fast_rewrite(text: str) -> str:
 def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
     system = (
         "你是短视频口播文案改写专家。输出必须是中文口播文案。"
-        "每句话单独一行，不要编号，不要标题，不要解释，不要使用标点符号。"
+        f"每句话单独一行，每行不超过{MAX_SCRIPT_LINE_CHARS}个汉字，不要编号，不要标题，不要解释，不要使用标点符号。"
     )
+    realtor_context = ""
+    if payload.realtor_context:
+        realtor_context = "\n结构化房源字段：\n" + json.dumps(payload.realtor_context, ensure_ascii=False, indent=2)
     user = f"""
 请改写下面文案。
 
@@ -794,6 +810,7 @@ def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
 
 原文：
 {payload.reference_text}
+{realtor_context}
 """
     return system, user
 

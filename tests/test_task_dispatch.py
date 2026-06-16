@@ -37,6 +37,36 @@ def test_run_task_executes_rewrite_payload_from_store(tmp_path, monkeypatch):
     assert item["result"]["final_script"]
 
 
+def test_rewrite_prompt_keeps_realtor_context():
+    payload = api_server.RewritePayload(
+        reference_text="房产生成提示词",
+        realtor_context={
+            "community": "江南府",
+            "highlights": ["采光好", "户型方正"],
+            "audience": ["改善家庭"],
+        },
+        rewrite_style="sales",
+        rewrite_tone="professional",
+    )
+
+    _, user = api_server._rewrite_prompt(payload)
+
+    assert "结构化房源字段" in user
+    assert "江南府" in user
+    assert "采光好" in user
+    assert "改善家庭" in user
+
+
+def test_format_script_lines_wraps_long_lines():
+    text = "这套房最适合想改善又不想增加太多通勤成本的家庭"
+
+    formatted = api_server._format_script_lines(text)
+
+    lines = formatted.splitlines()
+    assert len(lines) > 1
+    assert all(len(line) <= api_server.MAX_SCRIPT_LINE_CHARS for line in lines)
+
+
 def test_run_task_marks_failed_when_kind_is_unknown(tmp_path, monkeypatch):
     task_store = TaskStore(tmp_path / "task_store.sqlite3")
     monkeypatch.setattr(api_server, "task_store", task_store)
