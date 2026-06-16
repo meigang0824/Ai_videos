@@ -69,7 +69,20 @@ def _row_to_upload(row: Any) -> dict[str, Any]:
         **metadata,
         "filename": row["filename"],
         "user_id": row["user_id"],
+        "storage_provider": row.get("storage_provider") or metadata.get("storage_provider") or metadata.get("video_storage_provider") or "",
+        "object_key": row.get("object_key") or metadata.get("object_key") or metadata.get("video_object_key") or "",
+        "object_url": row.get("object_url") or metadata.get("object_url") or metadata.get("video_object_url") or "",
+        "object_error": row.get("object_error") or metadata.get("object_error") or metadata.get("video_object_error") or "",
         "created_at": row["created_at"],
+    }
+
+
+def _upload_object_fields(metadata: dict[str, Any]) -> dict[str, str]:
+    return {
+        "storage_provider": str(metadata.get("storage_provider") or metadata.get("video_storage_provider") or ""),
+        "object_key": str(metadata.get("object_key") or metadata.get("video_object_key") or ""),
+        "object_url": str(metadata.get("object_url") or metadata.get("video_object_url") or ""),
+        "object_error": str(metadata.get("object_error") or metadata.get("video_object_error") or ""),
     }
 
 
@@ -129,6 +142,7 @@ class TaskStore:
                     uploads_table.insert().values(
                         filename=filename,
                         user_id=item.get("user_id") or LOCAL_USER_ID,
+                        **_upload_object_fields(metadata),
                         metadata_json=_json_dump(metadata),
                         created_at=created_at,
                     )
@@ -249,15 +263,21 @@ class TaskStore:
                 "user_id": user_id or LOCAL_USER_ID,
                 "created_at": created_at,
             }
+            item.update(_upload_object_fields(item))
             metadata_json = dict(item)
             metadata_json.pop("filename", None)
             metadata_json.pop("user_id", None)
             metadata_json.pop("created_at", None)
+            metadata_json.pop("storage_provider", None)
+            metadata_json.pop("object_key", None)
+            metadata_json.pop("object_url", None)
+            metadata_json.pop("object_error", None)
             conn.execute(uploads_table.delete().where(uploads_table.c.filename == filename))
             conn.execute(
                 uploads_table.insert().values(
                     filename=filename,
                     user_id=item["user_id"],
+                    **_upload_object_fields(item),
                     metadata_json=_json_dump(metadata_json),
                     created_at=created_at,
                 )

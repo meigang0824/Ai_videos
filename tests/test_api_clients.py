@@ -106,3 +106,119 @@ def test_service_config_migrates_file_and_preserves_masked_key(tmp_path, monkeyp
     persisted = store.load()
     assert persisted["llm"]["url"] == "http://new.local"
     assert persisted["llm"]["apiKey"] == "secret-key"
+
+
+def test_service_config_save_does_not_write_json_backup(tmp_path, monkeypatch):
+    config_path = tmp_path / "service_config.json"
+    store = ServiceConfigStore(tmp_path / "service_config.sqlite3")
+    monkeypatch.setattr(api_clients, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(api_clients, "service_config_store", store)
+
+    api_clients.save_service_config({"llm": {"enabled": True, "url": "http://db.local", "apiKey": "secret-key"}})
+
+    assert store.load()["llm"]["url"] == "http://db.local"
+    assert not config_path.exists()
+
+
+def test_openai_llm_uses_bearer_header_and_chat_endpoint(monkeypatch):
+    calls = []
+
+    class LlmResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "改写结果"}}]}
+
+    monkeypatch.setattr(
+        api_clients,
+        "load_service_config",
+        lambda mask_secret=False: {
+            "llm": {
+                "enabled": True,
+                "url": "https://coding.dashscope.aliyuncs.com/v1",
+                "apiKey": "sk-test",
+                "model": "qwen3.6-plus",
+            }
+        },
+    )
+
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout, "kwargs": kwargs})
+        return LlmResponse()
+
+    monkeypatch.setattr(api_clients.requests, "post", fake_post)
+
+    result = api_clients.call_llm("system", "user")
+
+    assert result == "改写结果"
+    assert calls[0]["url"] == "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
+    assert calls[0]["headers"]["Authorization"] == "Bearer sk-test"
+
+
+def test_service_config_save_prunes_legacy_fields(tmp_path, monkeypatch):
+    store = ServiceConfigStore(tmp_path / "service_config.sqlite3")
+    monkeypatch.setattr(api_clients, "service_config_store", store)
+
+    api_clients.save_service_config(
+        {
+            "tts": {
+                "enabled": True,
+                "url": "http://tts.local/v1/tts/synthesize",
+                "cloneUrl": "http://tts.local/v1/tts/clone",
+                "promptTextField": "prompt_text",
+                "outputMode": "binary",
+                "base64Path": "audio",
+            },
+            "videoCompose": {
+                "enabled": True,
+                "url": "http://video.local/v1/video/compose",
+                "videoPath": "video_url",
+                "outputMode": "json_url",
+            },
+            "asr": {
+                "enabled": True,
+                "url": "http://model.local/v1/audio/transcribe",
+                "urlTranscribeUrl": "http://legacy.local/url",
+                "videoTranscribeUrl": "http://legacy.local/video",
+            },
+        }
+    )
+
+    persisted = store.load()
+    assert "urlTranscribeUrl" not in persisted["asr"]
+    assert "videoTranscribeUrl" not in persisted["asr"]
+    assert persisted["asr"]["url"] == "http://legacy.local/url"
+    assert persisted["asr"]["videoUrl"] == "http://legacy.local/video"
+    assert persisted["tts"]["cloneUrl"] == "http://tts.local/v1/tts/clone"
+    assert "promptTextField" not in persisted["tts"]
+    assert "outputMode" not in persisted["tts"]
+    assert "base64Path" not in persisted["tts"]
+    assert "videoPath" not in persisted["videoCompose"]
+
+
+def test_asr_endpoints_are_derived_from_main_transcribe_url(monkeypatch):
+    config = {
+        "enabled": True,
+        "url": "http://model.local/v1/audio/transcribe",
+    }
+    normalized = api_clients._normalize_asr_config(config)
+
+    assert normalized["url"] == "http://model.local/v1/audio/transcribe-url"
+    assert normalized["videoUrl"] == "http://model.local/v1/video/transcribe"
+    assert api_clients._asr_endpoint(normalized, "audio") == "http://model.local/v1/audio/transcribe"
+    assert api_clients._asr_endpoint(normalized, "url") == "http://model.local/v1/audio/transcribe-url"
+    assert api_clients._asr_endpoint(normalized, "video") == "http://model.local/v1/video/transcribe"
+
+
+def test_asr_uses_separate_link_and_video_endpoints(monkeypatch):
+    config = {
+        "enabled": True,
+        "url": "http://model.local/v1/audio/transcribe-url",
+        "videoUrl": "http://model.local/v1/video/transcribe",
+        "model": "base",
+    }
+
+    assert api_clients._asr_endpoint(config, "url") == "http://model.local/v1/audio/transcribe-url"
+    assert api_clients._asr_endpoint(config, "video") == "http://model.local/v1/video/transcribe"
+    assert api_clients._asr_endpoint(config, "audio") == "http://model.local/v1/audio/transcribe"

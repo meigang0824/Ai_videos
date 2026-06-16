@@ -97,19 +97,20 @@ class AuthStore:
         with self.engine.connect() as conn:
             return int(conn.execute(select(func.count()).select_from(users_table)).scalar_one())
 
-    def create_user(self, username: str, password: str) -> dict[str, Any]:
+    def create_user(self, username: str, password: str, role: str | None = None) -> dict[str, Any]:
         username = username.strip()
         if len(username) < 3:
             raise ValueError("用户名至少需要 3 个字符")
         if len(password) < 8:
             raise ValueError("密码至少需要 8 个字符")
+        role = role if role in {"admin", "user", "realtor"} else None
         with self.lock, self.engine.begin() as conn:
-            role = "admin" if self.user_count() == 0 else "user"
+            assigned_role = role or ("admin" if self.user_count() == 0 else "user")
             user = {
                 "id": uuid.uuid4().hex,
                 "username": username,
                 "password_hash": _hash_password(password),
-                "role": role,
+                "role": assigned_role,
                 "status": "active",
                 "created_at": _now(),
                 "last_login_at": None,
@@ -119,6 +120,14 @@ class AuthStore:
             except IntegrityError as exc:
                 raise ValueError("用户名已存在") from exc
             return public_user(user)
+
+    def delete_user(self, user_id: str) -> bool:
+        with self.lock, self.engine.begin() as conn:
+            row = conn.execute(select(users_table).where(users_table.c.id == user_id)).first()
+            if not row:
+                return False
+            conn.execute(users_table.delete().where(users_table.c.id == user_id))
+            return True
 
     def authenticate(self, username: str, password: str) -> dict[str, Any] | None:
         with self.lock, self.engine.begin() as conn:

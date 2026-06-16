@@ -23,80 +23,37 @@ logger = logging.getLogger("cosyvoice.api_clients")
 DEFAULT_SERVICE_CONFIG: dict[str, Any] = {
     "llm": {
         "enabled": False,
-        "provider": "openai_chat",
         "url": "",
         "apiKey": "",
         "model": "",
         "timeout": 90,
-        "headerName": "Authorization",
-        "headerPrefix": "Bearer ",
-        "textPath": "choices.0.message.content",
     },
     "asr": {
         "enabled": False,
-        "provider": "multipart",
         "url": "",
+        "videoUrl": "",
         "apiKey": "",
         "model": "base",
         "timeout": 180,
-        "headerName": "Authorization",
-        "headerPrefix": "Bearer ",
-        "fileField": "file",
-        "videoField": "video",
-        "urlField": "url",
-        "urlTranscribeUrl": "",
-        "videoTranscribeUrl": "",
-        "language": "zh",
-        "textPath": "text",
-        "segmentsPath": "segments",
     },
     "tts": {
         "enabled": False,
-        "provider": "json",
         "url": "",
-        "speakerUrl": "",
         "cloneUrl": "",
         "apiKey": "",
-        "model": "",
         "timeout": 240,
-        "headerName": "Authorization",
-        "headerPrefix": "Bearer ",
-        "textField": "text",
-        "voiceField": "speaker",
-        "speedField": "speed",
-        "outputMode": "binary",
-        "audioPath": "audio_url",
-        "base64Path": "audio",
-        "useMultipart": False,
-        "promptTextField": "prompt_text",
-        "promptAudioField": "prompt_audio",
     },
     "lipSync": {
         "enabled": False,
-        "provider": "multipart",
         "url": "",
         "apiKey": "",
-        "model": "",
         "timeout": 900,
-        "headerName": "Authorization",
-        "headerPrefix": "Bearer ",
-        "videoField": "video",
-        "audioField": "audio",
-        "outputMode": "binary",
-        "videoPath": "video_url",
-        "base64Path": "video",
     },
     "videoCompose": {
         "enabled": False,
-        "provider": "json",
         "url": "",
         "apiKey": "",
         "timeout": 900,
-        "headerName": "Authorization",
-        "headerPrefix": "Bearer ",
-        "outputMode": "json_url",
-        "videoPath": "video_url",
-        "base64Path": "video",
     },
 }
 
@@ -105,7 +62,10 @@ def _merge_defaults(data: dict[str, Any] | None) -> dict[str, Any]:
     merged = deepcopy(DEFAULT_SERVICE_CONFIG)
     for section, values in (data or {}).items():
         if isinstance(values, dict) and section in merged:
-            merged[section].update(values)
+            if section == "asr":
+                values = _normalize_asr_config(values)
+            allowed = set(DEFAULT_SERVICE_CONFIG[section])
+            merged[section].update({key: value for key, value in values.items() if key in allowed})
     return merged
 
 
@@ -131,14 +91,13 @@ def save_service_config(payload: dict[str, Any]) -> dict[str, Any]:
         if not key or "*" in key:
             values["apiKey"] = current.get(section, {}).get("apiKey", "")
     service_config_store.save(next_config)
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(next_config, ensure_ascii=False, indent=2), encoding="utf-8")
     return load_service_config(mask_secret=True)
 
 
 def _section(name: str) -> dict[str, Any]:
     config = load_service_config(mask_secret=False).get(name) or {}
-    if not config.get("enabled") or not config.get("url"):
+    has_url = bool(config.get("url") or (name == "asr" and config.get("videoUrl")))
+    if not config.get("enabled") or not has_url:
         raise RuntimeError(f"请先在接口配置里启用并填写 {name} 接口")
     return config
 
@@ -150,13 +109,16 @@ def _timeout(config: dict[str, Any], default: int) -> int:
         return default
 
 
-def _headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, str]:
+def _headers(config: dict[str, Any], json_mode: bool = False, default_prefix: str = "") -> dict[str, str]:
     headers: dict[str, str] = {}
     key = str(config.get("apiKey") or "").strip()
     if key:
         header_name = str(config.get("headerName") or "Authorization").strip()
-        prefix = str(config.get("headerPrefix") or "")
-        headers[header_name] = f"{prefix}{key}" if prefix else key
+        prefix = str(config.get("headerPrefix") or default_prefix or "")
+        if prefix and key.lower().startswith(prefix.strip().lower() + " "):
+            headers[header_name] = key
+        else:
+            headers[header_name] = f"{prefix}{key}" if prefix else key
     if json_mode:
         headers["Content-Type"] = "application/json"
     return headers
@@ -210,27 +172,59 @@ def _replace_path_suffix(url: str, old_suffix: str, new_suffix: str) -> str | No
     return f"{base[: -len(old_suffix)]}{new_suffix}"
 
 
+def _derive_asr_endpoint(value: str, target: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    replacements = {
+        "audio": [
+            ("/v1/audio/transcribe-url", "/v1/audio/transcribe"),
+            ("/v1/video/transcribe", "/v1/audio/transcribe"),
+        ],
+        "url": [
+            ("/v1/audio/transcribe", "/v1/audio/transcribe-url"),
+            ("/v1/video/transcribe", "/v1/audio/transcribe-url"),
+        ],
+        "video": [
+            ("/v1/audio/transcribe", "/v1/video/transcribe"),
+            ("/v1/audio/transcribe-url", "/v1/video/transcribe"),
+        ],
+    }
+    for old_suffix, new_suffix in replacements.get(target, []):
+        derived = _replace_path_suffix(value, old_suffix, new_suffix)
+        if derived:
+            return derived
+    return value
+
+
+def _normalize_asr_config(values: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(values)
+    legacy_audio_url = str(normalized.get("url") or "").strip()
+    legacy_link_url = str(normalized.get("urlTranscribeUrl") or "").strip()
+    legacy_video_url = str(
+        normalized.get("videoUrl") or normalized.get("video_url") or normalized.get("videoTranscribeUrl") or ""
+    ).strip()
+    if legacy_link_url:
+        normalized["url"] = legacy_link_url
+    elif legacy_audio_url and legacy_audio_url.rstrip("/").endswith("/v1/audio/transcribe"):
+        normalized["url"] = _derive_asr_endpoint(legacy_audio_url, "url")
+    if legacy_video_url:
+        normalized["videoUrl"] = legacy_video_url
+    elif legacy_audio_url:
+        normalized["videoUrl"] = _derive_asr_endpoint(legacy_audio_url, "video")
+    return normalized
+
+
 def _asr_endpoint(config: dict[str, Any], kind: str) -> str:
-    base_url = str(config.get("url") or "").strip()
+    link_url = str(config.get("url") or "").strip()
+    video_url = str(config.get("videoUrl") or "").strip()
     if kind == "audio":
-        return base_url
+        return _derive_asr_endpoint(video_url or link_url, "audio")
     if kind == "url":
-        explicit = str(config.get("urlTranscribeUrl") or "").strip()
-        if explicit:
-            return explicit
-        derived = _replace_path_suffix(base_url, "/v1/audio/transcribe", "/v1/audio/transcribe-url")
-        if derived:
-            return derived
-        return urljoin(base_url.rstrip("/") + "/", "v1/audio/transcribe-url")
+        return link_url or _derive_asr_endpoint(video_url, "url")
     if kind == "video":
-        explicit = str(config.get("videoTranscribeUrl") or "").strip()
-        if explicit:
-            return explicit
-        derived = _replace_path_suffix(base_url, "/v1/audio/transcribe", "/v1/video/transcribe")
-        if derived:
-            return derived
-        return urljoin(base_url.rstrip("/") + "/", "v1/video/transcribe")
-    return base_url
+        return video_url or _derive_asr_endpoint(link_url, "video")
+    return link_url or video_url
 
 
 def _parse_asr_result(result: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -264,6 +258,24 @@ def _extract_rewrite_script(user_prompt: str) -> str:
 def _extract_rewrite_style(user_prompt: str) -> str:
     match = re.search(r"^风格：(.+)$", user_prompt, re.MULTILINE)
     return match.group(1).strip() if match else ""
+
+
+def _clean_url(value: str) -> str:
+    value = str(value or "").strip()
+    markdown_match = re.search(r"\((https?://[^)]+)\)", value)
+    if markdown_match:
+        return markdown_match.group(1).strip()
+    bracket_match = re.search(r"https?://[^\]\s)]+", value)
+    if bracket_match:
+        return bracket_match.group(0).strip()
+    return value
+
+
+def _openai_chat_endpoint(value: str) -> str:
+    endpoint = _clean_url(value).rstrip("/")
+    if endpoint.endswith("/v1"):
+        return f"{endpoint}/chat/completions"
+    return endpoint
 
 
 def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.7) -> str:
@@ -301,7 +313,12 @@ def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.7) -> 
                 {"role": "user", "content": user_prompt},
             ],
         }
-        response = requests.post(config["url"], headers=_headers(config, json_mode=True), json=payload, timeout=timeout)
+        response = requests.post(
+            _openai_chat_endpoint(config["url"]),
+            headers=_headers(config, json_mode=True, default_prefix="Bearer "),
+            json=payload,
+            timeout=timeout,
+        )
 
     _raise_for_status(response)
     data = response.json()
@@ -325,7 +342,7 @@ def call_asr(audio_path: Path, model: str | None = None, language: str | None = 
     }
     with open(audio_path, "rb") as f:
         files = {file_field: (audio_path.name, f, "application/octet-stream")}
-        response = requests.post(config["url"], headers=_headers(config), data=data, files=files, timeout=timeout)
+        response = requests.post(_asr_endpoint(config, "audio"), headers=_headers(config), data=data, files=files, timeout=timeout)
     _raise_for_status(response)
     result = response.json()
     return _parse_asr_result(result, config)
@@ -365,33 +382,6 @@ def call_asr_media(media_path: Path, *, is_video: bool = False, model: str | Non
         response = requests.post(_asr_endpoint(config, "video"), headers=_headers(config), data=data, files=files, timeout=timeout)
     _raise_for_status(response)
     return _parse_asr_result(response.json(), config)
-
-
-def list_tts_speakers() -> list[str]:
-    config = _section("tts")
-    speaker_url = str(config.get("speakerUrl") or "").strip()
-    data: Any = None
-    if speaker_url:
-        try:
-            response = requests.get(speaker_url, headers=_headers(config), timeout=_timeout(config, 30))
-            _raise_for_status(response)
-            data = response.json()
-        except Exception:
-            data = None
-    if data is None:
-        base_url = str(config.get("serviceBaseUrl") or "").strip()
-        if not base_url:
-            base_url = str(config.get("url") or "").split("/v1/", 1)[0]
-        if not base_url:
-            return []
-        response = requests.get(urljoin(base_url.rstrip("/") + "/", "v1/health"), timeout=_timeout(config, 30))
-        _raise_for_status(response)
-        health = response.json()
-        data = (health.get("tts") or {}).get("speakers") if isinstance(health, dict) else []
-    speakers = data.get("speakers") if isinstance(data, dict) else data
-    if not isinstance(speakers, list):
-        return []
-    return [str(item).strip() for item in speakers if str(item).strip()]
 
 
 def call_tts(

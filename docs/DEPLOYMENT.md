@@ -30,7 +30,7 @@ docker-compose up -d --build
 http://127.0.0.1
 ```
 
-第一次注册的账号会成为管理员。
+后台管理页地址是 `/admin`，用于配置接口、新增用户和删除用户。注册入口已关闭，普通用户账号由管理员创建；创建“房产中介”角色后，该账号工作台会把前两个模块合并为房产文案生成模块。
 
 应用容器仍会暴露 `PORT`，Nginx 使用 `HTTP_PORT` 对外提供反向代理入口。
 如果设置了 `HTTP_PORT=8080`，访问地址就是 `http://127.0.0.1:8080`。API 直连地址仍是 `http://127.0.0.1:8010`。
@@ -137,8 +137,8 @@ chmod +x scripts/backup_storage.sh
 代码和运行数据分开迁移：
 
 - 代码：复制项目目录，但不要把 `.env`、真实 `backend/storage/service_config.json`、SQLite 文件和密钥文件提交到代码仓库。
-- 运行配置：接口配置和 API Key 以数据库 `service_configs` 表为准；旧 `backend/storage/service_config.json` 会自动迁入数据库，并继续作为兼容备份。
-- Docker 数据：当前 Docker Compose 使用 named volumes，PostgreSQL 数据在 `cosy_postgres`，服务配置兼容备份在 `cosy_storage`，音色音频在 `cosy_voices`。只复制代码不会带走这些 volume。
+- 运行配置：接口配置和 API Key 以数据库 `service_configs` 表为准；旧 `backend/storage/service_config.json` 会自动迁入数据库，迁入后不再继续写 JSON 备份。
+- Docker 数据：当前 Docker Compose 使用 named volumes，PostgreSQL 数据在 `cosy_postgres`，音色音频在 `cosy_voices`，上传文件在 `cosy_storage`。只复制代码不会带走这些 volume。
 - 配置样例：`backend/storage/service_config.example.json` 只放无密钥示例，可用于新环境参考。
 
 迁移到新服务器时，推荐流程：
@@ -162,6 +162,8 @@ docker-compose exec -T postgres psql -U cosyvoice -d cosyvoice < cosyvoice.sql
 
 - `GET /api/v1/job-runner`：查看任务执行器状态。
 - `GET /api/v1/admin/users`：查看用户。
+- `POST /api/v1/admin/users`：新增用户。
+- `DELETE /api/v1/admin/users/{user_id}`：删除用户。
 - `GET /api/v1/admin/tasks`：查看任务。
 - `GET /api/v1/admin/usage`：查看用量汇总。
 - `GET /api/v1/admin/storage`：查看本地存储和 OSS 配置状态。

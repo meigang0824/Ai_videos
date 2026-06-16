@@ -19,7 +19,7 @@ class DummyJobRunner:
         return False
 
 
-def test_register_login_and_me_use_bearer_token(tmp_path, monkeypatch):
+def test_login_and_me_use_bearer_token(tmp_path, monkeypatch):
     auth_store = AuthStore(tmp_path / "auth.sqlite3")
     monkeypatch.setattr(api_server, "auth_store", auth_store)
     monkeypatch.setattr(api_server, "AUTH_REQUIRED", False)
@@ -27,17 +27,11 @@ def test_register_login_and_me_use_bearer_token(tmp_path, monkeypatch):
     client = TestClient(api_server.app)
     username = "tester_auth"
     password = "TestPass12345"
+    user = auth_store.create_user(username, password, role="admin")
+    assert user["role"] == "admin"
 
-    registered = client.post("/api/v1/auth/register", json={"username": username, "password": password})
-    assert registered.status_code == 200
-    registered_body = registered.json()
-    assert registered_body["user"]["username"] == username
-    assert registered_body["user"]["role"] == "admin"
-    assert registered_body["token"]
-
-    duplicate = client.post("/api/v1/auth/register", json={"username": username, "password": password})
-    assert duplicate.status_code == 400
-    assert duplicate.json()["detail"] == "用户名已存在"
+    register = client.post("/api/v1/auth/register", json={"username": "new_user", "password": password})
+    assert register.status_code == 410
 
     wrong_password = client.post("/api/v1/auth/login", json={"username": username, "password": "wrong-password"})
     assert wrong_password.status_code == 401
@@ -63,14 +57,10 @@ def test_service_config_requires_admin(tmp_path, monkeypatch):
 
     client = TestClient(api_server.app)
 
-    admin = client.post(
-        "/api/v1/auth/register",
-        json={"username": "admin_user", "password": "TestPass12345"},
-    ).json()
-    member = client.post(
-        "/api/v1/auth/register",
-        json={"username": "member_user", "password": "TestPass12345"},
-    ).json()
+    admin_user = auth_store.create_user("admin_user", "TestPass12345", role="admin")
+    member_user = auth_store.create_user("member_user", "TestPass12345", role="user")
+    admin = client.post("/api/v1/auth/login", json={"username": admin_user["username"], "password": "TestPass12345"}).json()
+    member = client.post("/api/v1/auth/login", json={"username": member_user["username"], "password": "TestPass12345"}).json()
 
     admin_headers = {"Authorization": f"Bearer {admin['token']}"}
     member_headers = {"Authorization": f"Bearer {member['token']}"}
@@ -87,6 +77,52 @@ def test_service_config_requires_admin(tmp_path, monkeypatch):
     assert admin_write.json()["config"]["llm"]["enabled"] is True
 
 
+def test_admin_can_create_and_delete_users(tmp_path, monkeypatch):
+    auth_store = AuthStore(tmp_path / "auth.sqlite3")
+    monkeypatch.setattr(api_server, "auth_store", auth_store)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+
+    client = TestClient(api_server.app)
+    admin_user = auth_store.create_user("admin_user", "TestPass12345", role="admin")
+    admin = client.post("/api/v1/auth/login", json={"username": admin_user["username"], "password": "TestPass12345"}).json()
+    admin_headers = {"Authorization": f"Bearer {admin['token']}"}
+
+    created = client.post(
+        "/api/v1/admin/users",
+        headers=admin_headers,
+        json={"username": "managed_user", "password": "TestPass12345", "role": "realtor"},
+    )
+    assert created.status_code == 200
+    managed_user = created.json()["user"]
+    assert managed_user["role"] == "realtor"
+
+    managed_login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "managed_user", "password": "TestPass12345"},
+    )
+    assert managed_login.status_code == 200
+    assert managed_login.json()["user"]["role"] == "realtor"
+
+    duplicate = client.post(
+        "/api/v1/admin/users",
+        headers=admin_headers,
+        json={"username": "managed_user", "password": "TestPass12345", "role": "user"},
+    )
+    assert duplicate.status_code == 400
+
+    users = client.get("/api/v1/admin/users", headers=admin_headers)
+    assert users.status_code == 200
+    assert any(item["username"] == "managed_user" for item in users.json()["users"])
+
+    delete_self = client.delete(f"/api/v1/admin/users/{admin_user['id']}", headers=admin_headers)
+    assert delete_self.status_code == 400
+
+    deleted = client.delete(f"/api/v1/admin/users/{managed_user['id']}", headers=admin_headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert auth_store.get_user(managed_user["id"]) is None
+
+
 def test_tts_sample_start_reuses_success_task_from_store(tmp_path, monkeypatch):
     auth_store = AuthStore(tmp_path / "auth.sqlite3")
     task_store = TaskStore(tmp_path / "task_store.sqlite3")
@@ -97,10 +133,8 @@ def test_tts_sample_start_reuses_success_task_from_store(tmp_path, monkeypatch):
     monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
 
     client = TestClient(api_server.app)
-    registered = client.post(
-        "/api/v1/auth/register",
-        json={"username": "sample_user", "password": "TestPass12345"},
-    ).json()
+    sample_user = auth_store.create_user("sample_user", "TestPass12345", role="user")
+    registered = client.post("/api/v1/auth/login", json={"username": sample_user["username"], "password": "TestPass12345"}).json()
     headers = {"Authorization": f"Bearer {registered['token']}"}
     user_id = registered["user"]["id"]
     sample_id = "voice_sample_user_voice_1x"
@@ -143,12 +177,16 @@ def test_upload_voice_persists_voice_name_in_database(tmp_path, monkeypatch):
     monkeypatch.setattr(api_server, "voice_store", voice_store)
     monkeypatch.setattr(api_server, "VOICE_DIR", voice_dir)
     monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+    monkeypatch.setattr(api_server.object_storage, "enabled", lambda: False)
+    monkeypatch.setattr(
+        api_server,
+        "call_asr",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("导入音色不应调用 ASR")),
+    )
 
     client = TestClient(api_server.app)
-    registered = client.post(
-        "/api/v1/auth/register",
-        json={"username": "voice_user", "password": "TestPass12345"},
-    ).json()
+    voice_user = auth_store.create_user("voice_user", "TestPass12345", role="user")
+    registered = client.post("/api/v1/auth/login", json={"username": voice_user["username"], "password": "TestPass12345"}).json()
     headers = {"Authorization": f"Bearer {registered['token']}"}
 
     response = client.post(
@@ -163,8 +201,12 @@ def test_upload_voice_persists_voice_name_in_database(tmp_path, monkeypatch):
     assert stored is not None
     assert stored["name"] == voice["name"]
     assert stored["user_id"] == registered["user"]["id"]
+    assert stored["ref_text"] == ""
+    assert not list(voice_dir.glob("*.json"))
 
     listed = client.get("/api/v1/voices", headers=headers)
     assert listed.status_code == 200
-    names = [item["name"] for item in listed.json()["voices"]]
+    listed_voices = listed.json()["voices"]
+    names = [item["name"] for item in listed_voices]
     assert voice["name"] in names
+    assert all(item["kind"] == "local" for item in listed_voices)

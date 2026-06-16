@@ -45,6 +45,10 @@ uploads_table = Table(
     metadata,
     Column("filename", String(255), primary_key=True),
     Column("user_id", String(64), nullable=False, default="local", index=True),
+    Column("storage_provider", String(64)),
+    Column("object_key", Text),
+    Column("object_url", Text),
+    Column("object_error", Text),
     Column("metadata_json", Text),
     Column("created_at", String(64), nullable=False),
 )

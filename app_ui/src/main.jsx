@@ -30,6 +30,7 @@ import './app.css';
 
 const API_BASE = '';
 const AUTH_TOKEN_KEY = 'cosyvoice_auth_token';
+const TRANSIENT_HTTP_STATUS = new Set([502, 503, 504]);
 
 const defaultPrompt = {
   url: 'https://v.douyin.com/ZhVLsEwjxQA/'
@@ -119,78 +120,79 @@ const REWRITE_ENGINES = [
   { id: 'fast', name: '快速预览', desc: '秒级返回，质量一般' }
 ];
 
+const ROLE_LABELS = {
+  admin: '管理员',
+  user: '普通用户',
+  realtor: '房产中介'
+};
+
+const REALTOR_OPTIONS = {
+  propertyType: ['住宅', '公寓', '别墅', '商铺', '写字楼'],
+  dealType: ['二手房', '新房', '租房'],
+  layout: ['一居', '两居', '三居', '四居', '五居及以上', '大平层'],
+  size: ['60平以下', '60-90平', '90-120平', '120-150平', '150平以上'],
+  decoration: ['毛坯', '简装', '精装', '豪装', '拎包入住'],
+  orientation: ['南向', '南北通透', '东边套', '西边套', '全明格局'],
+  floor: ['低楼层', '中楼层', '高楼层', '顶楼', '带院子', '带露台'],
+  elevator: ['电梯房', '洋房低密', '一梯一户', '两梯四户'],
+  metro: ['近地铁', '近公交', '自驾方便', '商圈步行可达'],
+  school: ['优质学区', '近学校', '近幼儿园', '无学区需求'],
+  highlights: ['满五唯一', '税费低', '业主急售', '价格可谈', '采光好', '视野开阔', '安静不临街', '得房率高', '户型方正', '近地铁', '近商圈', '带车位', '带花园', '带露台', '拎包入住'],
+  audience: ['刚需首套', '改善家庭', '二胎家庭', '老人同住', '年轻白领', '投资出租', '学区家庭', '养老自住'],
+  contentDuration: ['15秒（约80-120字）', '30秒（约160-220字）', '45秒（约240-320字）', '60秒（约320-420字）', '90秒（约450-600字）'],
+  style: ['成交转化', '稀缺急迫', '生活场景', '专业讲盘', '探房口播', '高端质感'],
+  callToAction: ['预约看房', '私信拿底价', '评论区问房源', '领取房源清单', '了解税费方案']
+};
+
+const REALTOR_DURATION_META = {
+  '15秒（约80-120字）': { words: '80-120 字', rewriteLength: 'short' },
+  '30秒（约160-220字）': { words: '160-220 字', rewriteLength: 'medium' },
+  '45秒（约240-320字）': { words: '240-320 字', rewriteLength: 'medium' },
+  '60秒（约320-420字）': { words: '320-420 字', rewriteLength: 'long' },
+  '90秒（约450-600字）': { words: '450-600 字', rewriteLength: 'long' }
+};
+
 const DEFAULT_SERVICE_CONFIG = {
   llm: {
     enabled: false,
-    provider: 'openai_chat',
     url: '',
     apiKey: '',
     model: '',
-    timeout: 90,
-    textPath: 'choices.0.message.content'
+    timeout: 90
   },
   asr: {
     enabled: false,
-    provider: 'multipart',
     url: '',
+    videoUrl: '',
     apiKey: '',
     model: 'base',
-    timeout: 180,
-    fileField: 'file',
-    videoField: 'video',
-    urlField: 'url',
-    urlTranscribeUrl: '',
-    videoTranscribeUrl: '',
-    language: 'zh',
-    textPath: 'text',
-    segmentsPath: 'segments'
+    timeout: 180
   },
   tts: {
     enabled: false,
-    provider: 'json',
     url: '',
-    speakerUrl: '',
     cloneUrl: '',
     apiKey: '',
-    model: '',
-    timeout: 240,
-    textField: 'text',
-    voiceField: 'speaker',
-    speedField: 'speed',
-    outputMode: 'binary',
-    audioPath: 'audio_url',
-    base64Path: 'audio',
-    useMultipart: false,
-    promptTextField: 'prompt_text',
-    promptAudioField: 'prompt_audio'
+    timeout: 240
   },
   lipSync: {
     enabled: false,
-    provider: 'multipart',
     url: '',
     apiKey: '',
-    model: '',
-    timeout: 900,
-    outputMode: 'binary',
-    videoPath: 'video_url',
-    base64Path: 'video'
+    timeout: 900
   },
   videoCompose: {
     enabled: false,
-    provider: 'json',
     url: '',
     apiKey: '',
-    timeout: 900,
-    outputMode: 'json_url',
-    videoPath: 'video_url',
-    base64Path: 'video'
+    timeout: 900
   }
 };
 
 const API_CONFIG_SECTIONS = [
-  { id: 'llm', title: '文案改写 LLM', hint: 'OpenAI-compatible 或 Anthropic Messages' },
+  { id: 'llm', title: '文案改写 LLM', hint: 'OpenAI-compatible 文案改写接口' },
   { id: 'asr', title: '文案提取 ASR', hint: '支持链接、音频文件、视频文件转写' },
-  { id: 'tts', title: '语音合成 TTS', hint: '返回二进制音频、音频 URL 或 base64' },
+  { id: 'tts', title: '语音合成 TTS', hint: '普通合成和 clone 音色合成' },
   { id: 'lipSync', title: '口型同步', hint: '上传视频和音频后返回成片' },
   { id: 'videoCompose', title: '视频剪辑成片', hint: '使用 OSS 链接调用外部视频合成接口' }
 ];
@@ -288,7 +290,9 @@ async function postJSON(path, payload) {
   const elapsedMs = performance.now() - started;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || `请求失败：${res.status}`);
+    const error = new Error(data.detail || `请求失败：${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return { data, elapsedMs };
 }
@@ -297,7 +301,9 @@ async function getJSON(path) {
   const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || `请求失败：${res.status}`);
+    const error = new Error(data.detail || `请求失败：${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return data;
 }
@@ -310,7 +316,23 @@ async function putJSON(path, payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || `请求失败：${res.status}`);
+    const error = new Error(data.detail || `请求失败：${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
+  return data;
+}
+
+async function deleteJSON(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(data.detail || `请求失败：${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return data;
 }
@@ -337,7 +359,84 @@ function wrapPreviewCaption(text, maxChars) {
   return lines.join('\n');
 }
 
-function ApiConfigPanel({ config, status, onClose, onChange, onSave }) {
+function buildRealtorSource(form) {
+  const fields = [
+    ['城市片区', form.area],
+    ['小区楼盘', form.community],
+    ['房源类型', form.propertyType],
+    ['交易类型', form.dealType],
+    ['户型', form.layout],
+    ['面积段', form.size],
+    ['价格段', form.price],
+    ['装修', form.decoration],
+    ['朝向采光', form.orientation],
+    ['楼层特点', form.floor],
+    ['电梯梯户', form.elevator],
+    ['交通配套', form.metro],
+    ['教育配套', form.school],
+    ['核心卖点', (form.highlights || []).join('、')],
+    ['目标客户', (form.audience || []).join('、')],
+    ['内容时长', form.contentDuration],
+    ['文案风格', form.style],
+    ['行动引导', form.callToAction],
+    ['补充信息', form.notes]
+  ];
+  return fields
+    .map(([label, value]) => `${label}：${String(value || '').trim()}`)
+    .filter(line => !line.endsWith('：'))
+    .join('\n');
+}
+
+function SelectField({ label, options, value, onChange }) {
+  return <label>
+    <span>{label}</span>
+    <select
+      value={value || ''}
+      onChange={event => onChange(event.target.value)}
+    >
+      <option value="">请选择</option>
+      {options.map(option => <option key={option} value={option}>{option}</option>)}
+    </select>
+  </label>;
+}
+
+function MultiSelectField({ label, options, value, onChange }) {
+  const selected = Array.isArray(value) ? value : [];
+  const summary = selected.length
+    ? `${selected.slice(0, 3).join('、')}${selected.length > 3 ? ` 等${selected.length}项` : ''}`
+    : '请选择';
+
+  function toggleOption(option) {
+    const next = selected.includes(option)
+      ? selected.filter(item => item !== option)
+      : [...selected, option];
+    onChange(next);
+  }
+
+  return <div className="multi-select-field">
+    <span>{label}</span>
+    <details className="multi-select-dropdown">
+      <summary>
+        <span>{summary}</span>
+        <ArrowDown size={14}/>
+      </summary>
+      <div className="multi-select-menu">
+        {options.map(option => (
+          <label key={option} className="multi-select-option">
+            <input
+              type="checkbox"
+              checked={selected.includes(option)}
+              onChange={() => toggleOption(option)}
+            />
+            <span>{option}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  </div>;
+}
+
+function ApiConfigPanel({ config, status, onClose, onChange, onSave, embedded = false }) {
   const current = config || DEFAULT_SERVICE_CONFIG;
 
   function field(section, key, label, type = 'text', placeholder = '') {
@@ -353,14 +452,13 @@ function ApiConfigPanel({ config, status, onClose, onChange, onSave }) {
     </label>;
   }
 
-  return <div className="api-config-backdrop">
-    <div className="api-config-panel">
+  const content = <div className={embedded ? 'api-config-panel embedded' : 'api-config-panel'}>
       <div className="api-config-head">
         <div>
           <h2>接口配置</h2>
           <p>后端只负责编排任务，模型能力全部从这里配置的接口调用</p>
         </div>
-        <button className="ghost small" onClick={onClose}>关闭</button>
+        {onClose && <button className="ghost small" onClick={onClose}>关闭</button>}
       </div>
       <div className="api-config-grid">
         {API_CONFIG_SECTIONS.map(section => (
@@ -377,68 +475,18 @@ function ApiConfigPanel({ config, status, onClose, onChange, onSave }) {
               <span>{section.hint}</span>
             </div>
             <div className="api-config-fields">
-              {field(section.id, 'url', '接口地址', 'text', 'https://...')}
+              {section.id === 'asr' ? (
+                <>
+                  {field('asr', 'url', '视频链接提取接口', 'text', 'https://.../v1/audio/transcribe-url')}
+                  {field('asr', 'videoUrl', '视频文件提取接口', 'text', 'https://.../v1/video/transcribe')}
+                </>
+              ) : field(section.id, 'url', '接口地址', 'text', 'https://...')}
               {field(section.id, 'apiKey', 'API Key', 'password', '留空表示不修改已保存 Key')}
-              {field(section.id, 'model', '模型名')}
+              {(section.id === 'llm' || section.id === 'asr') && field(section.id, 'model', '模型名')}
               {field(section.id, 'timeout', '超时秒数', 'number')}
-              {section.id === 'llm' && (
-                <>
-                  <label>
-                    <span>协议</span>
-                    <select value={current.llm?.provider || 'openai_chat'} onChange={e => onChange('llm', 'provider', e.target.value)}>
-                      <option value="openai_chat">OpenAI Chat</option>
-                      <option value="anthropic_messages">Anthropic Messages</option>
-                    </select>
-                  </label>
-                  {field('llm', 'textPath', '文本路径')}
-                </>
-              )}
-              {section.id === 'asr' && (
-                <>
-                  {field('asr', 'fileField', '文件字段')}
-                  {field('asr', 'videoField', '视频字段')}
-                  {field('asr', 'urlField', '链接字段')}
-                  {field('asr', 'urlTranscribeUrl', '链接转写接口', 'text', '留空则从主接口自动推导')}
-                  {field('asr', 'videoTranscribeUrl', '视频转写接口', 'text', '留空则从主接口自动推导')}
-                  {field('asr', 'language', '语言')}
-                  {field('asr', 'textPath', '文本路径')}
-                  {field('asr', 'segmentsPath', '分段路径')}
-                </>
-              )}
-              {(section.id === 'tts' || section.id === 'lipSync' || section.id === 'videoCompose') && (
-                <>
-                  <label>
-                    <span>返回模式</span>
-                    <select
-                      value={current[section.id]?.outputMode || 'binary'}
-                      onChange={e => onChange(section.id, 'outputMode', e.target.value)}
-                    >
-                      <option value="binary">二进制文件</option>
-                      <option value="json_url">JSON 地址</option>
-                      <option value="json_base64">JSON Base64</option>
-                    </select>
-                  </label>
-                  {field(section.id, section.id === 'tts' ? 'audioPath' : 'videoPath', 'URL 路径')}
-                  {field(section.id, 'base64Path', 'Base64 路径')}
-                </>
-              )}
               {section.id === 'tts' && (
                 <>
-                  {field('tts', 'speakerUrl', '音色列表接口')}
                   {field('tts', 'cloneUrl', '声音克隆接口')}
-                  {field('tts', 'textField', '文本字段')}
-                  {field('tts', 'voiceField', '音色字段')}
-                  {field('tts', 'speedField', '语速字段')}
-                  {field('tts', 'promptTextField', '参考文本字段')}
-                  {field('tts', 'promptAudioField', '参考音频字段')}
-                  <label className="toggle-line api-config-inline-toggle">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(current.tts?.useMultipart)}
-                      onChange={e => onChange('tts', 'useMultipart', e.target.checked)}
-                    />
-                    TTS 使用 multipart 上传
-                  </label>
                 </>
               )}
             </div>
@@ -451,20 +499,20 @@ function ApiConfigPanel({ config, status, onClose, onChange, onSave }) {
           {status.state === 'loading' ? <Loader2 size={18}/> : <CheckCircle2 size={18}/>}保存接口配置
         </button>
       </div>
-    </div>
-  </div>;
+    </div>;
+
+  if (embedded) return content;
+  return <div className="api-config-backdrop">{content}</div>;
 }
 
-function AuthPanel({ mode, form, status, onModeChange, onChange, onSubmit, onClose }) {
-  const isRegister = mode === 'register';
-  return <div className="api-config-backdrop">
-    <div className="auth-panel">
+function AuthPanel({ form, status, onChange, onSubmit, onClose, embedded = false }) {
+  const content = <div className={embedded ? 'auth-panel embedded' : 'auth-panel'}>
       <div className="api-config-head">
         <div>
-          <h2>{isRegister ? '注册管理员' : '登录'}</h2>
-          <p>{isRegister ? '第一位注册用户会成为管理员' : '登录后可使用受保护操作'}</p>
+          <h2>登录</h2>
+          <p>登录后可使用受保护操作</p>
         </div>
-        <button className="ghost small" onClick={onClose}>关闭</button>
+        {onClose && <button className="ghost small" onClick={onClose}>关闭</button>}
       </div>
       <div className="auth-fields">
         <label>
@@ -481,23 +529,192 @@ function AuthPanel({ mode, form, status, onModeChange, onChange, onSubmit, onClo
           <input
             type="password"
             value={form.password}
-            autoComplete={isRegister ? 'new-password' : 'current-password'}
+            autoComplete="current-password"
             onChange={e => onChange('password', e.target.value)}
             placeholder="至少 8 个字符"
           />
         </label>
       </div>
       <div className="auth-actions">
-        <button className="ghost" onClick={() => onModeChange(isRegister ? 'login' : 'register')}>
-          {isRegister ? '已有账号' : '注册新账号'}
-        </button>
         <button className="primary" onClick={onSubmit} disabled={status.state === 'loading'}>
           {status.state === 'loading' ? <Loader2 size={18}/> : <CheckCircle2 size={18}/>}
-          {isRegister ? '注册并登录' : '登录'}
+          登录
         </button>
       </div>
       <StatusLine state={status.state} text={status.message}/>
-    </div>
+    </div>;
+
+  if (embedded) return content;
+  return <div className="api-config-backdrop">{content}</div>;
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const timestamp = String(value).length <= 10 ? Number(value) * 1000 : Number(value);
+  if (!Number.isFinite(timestamp)) return '-';
+  return new Date(timestamp).toLocaleString();
+}
+
+function AdminPage({
+  authUser,
+  authForm,
+  authStatus,
+  onAuthChange,
+  onLogin,
+  onLogout,
+  serviceConfig,
+  serviceConfigStatus,
+  onConfigChange,
+  onConfigSave,
+  users,
+  usersStatus,
+  newUser,
+  onNewUserChange,
+  onCreateUser,
+  onDeleteUser,
+  onRefreshUsers
+}) {
+  if (!authUser) {
+    return <div className="app-shell admin-shell">
+      <section className="workspace admin-workspace">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Admin Console</p>
+            <h2>后台管理</h2>
+          </div>
+          <div className="top-actions">
+            <a className="ghost small" href="/">返回工作台</a>
+          </div>
+        </header>
+        <div className="admin-login-panel">
+          <AuthPanel
+            embedded
+            form={authForm}
+            status={authStatus}
+            onChange={onAuthChange}
+            onSubmit={onLogin}
+          />
+        </div>
+      </section>
+    </div>;
+  }
+
+  if (authUser.role !== 'admin') {
+    return <div className="app-shell admin-shell">
+      <section className="workspace admin-workspace">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">Admin Console</p>
+            <h2>后台管理</h2>
+          </div>
+          <div className="top-actions">
+            <span className="auth-badge">{authUser.username}</span>
+            <button className="ghost small" onClick={onLogout}>退出</button>
+            <a className="ghost small" href="/">返回工作台</a>
+          </div>
+        </header>
+        <section className="admin-card">
+          <h3>需要管理员权限</h3>
+          <p>当前账号不是管理员，无法访问后台管理功能。</p>
+        </section>
+      </section>
+    </div>;
+  }
+
+  return <div className="app-shell admin-shell">
+    <section className="workspace admin-workspace">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Admin Console</p>
+          <h2>后台管理</h2>
+        </div>
+        <div className="top-actions">
+          <span className="auth-badge">{authUser.username} · 管理员</span>
+          <button className="ghost small" onClick={onLogout}>退出</button>
+          <a className="ghost small" href="/">返回工作台</a>
+        </div>
+      </header>
+
+      <main className="admin-layout">
+        <ApiConfigPanel
+          embedded
+          config={serviceConfig}
+          status={serviceConfigStatus}
+          onChange={onConfigChange}
+          onSave={onConfigSave}
+        />
+
+        <section className="admin-card">
+          <div className="admin-card-head">
+            <div>
+              <h3>用户管理</h3>
+              <p>由管理员统一新增或删除用户账号</p>
+            </div>
+            <button className="ghost small" onClick={onRefreshUsers}><RefreshCcw size={16}/>刷新</button>
+          </div>
+
+          <div className="admin-user-form">
+            <label>
+              <span>用户名</span>
+              <input value={newUser.username} onChange={e => onNewUserChange('username', e.target.value)} placeholder="至少 3 个字符"/>
+            </label>
+            <label>
+              <span>密码</span>
+              <input type="password" value={newUser.password} onChange={e => onNewUserChange('password', e.target.value)} placeholder="至少 8 个字符"/>
+            </label>
+            <label>
+              <span>角色</span>
+              <select value={newUser.role} onChange={e => onNewUserChange('role', e.target.value)}>
+                <option value="user">普通用户</option>
+                <option value="realtor">房产中介</option>
+                <option value="admin">管理员</option>
+              </select>
+            </label>
+            <button className="primary" onClick={onCreateUser} disabled={usersStatus.state === 'loading'}>
+              <UserRound size={18}/>新增用户
+            </button>
+          </div>
+          <StatusLine state={usersStatus.state} text={usersStatus.message}/>
+
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>用户名</th>
+                  <th>角色</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                  <th>最后登录</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.length ? users.map(user => (
+                  <tr key={user.id}>
+                    <td>{user.username}</td>
+                    <td>{ROLE_LABELS[user.role] || user.role}</td>
+                    <td>{user.status}</td>
+                    <td>{formatTime(user.created_at)}</td>
+                    <td>{formatTime(user.last_login_at)}</td>
+                    <td>
+                      <button
+                        className="ghost small danger"
+                        onClick={() => onDeleteUser(user)}
+                        disabled={user.id === authUser.id}
+                      >
+                        <Trash2 size={15}/>删除
+                      </button>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan="6">暂无用户</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </section>
   </div>;
 }
 
@@ -505,8 +722,20 @@ async function runBackgroundJob(path, payload, onProgress) {
   const started = performance.now();
   const { data: queued } = await postJSON(path, payload);
   let task = null;
+  let transientErrors = 0;
   while (true) {
-    task = await getJSON(`/api/v1/jobs/${queued.task_id}`);
+    try {
+      task = await getJSON(`/api/v1/jobs/${queued.task_id}`);
+      transientErrors = 0;
+    } catch (err) {
+      if (TRANSIENT_HTTP_STATUS.has(err.status) && transientErrors < 6) {
+        transientErrors += 1;
+        onProgress?.({ status: 'running', message: '服务正在恢复连接，继续等待', progress: task?.progress || 0 });
+        await sleep(1500);
+        continue;
+      }
+      throw err;
+    }
     if (task.status === 'success') {
       return { data: { ...(task.result || {}), cached: Boolean(queued.cached) }, elapsedMs: performance.now() - started, task };
     }
@@ -533,7 +762,6 @@ function App() {
   const [rewritePlatform, setRewritePlatform] = useState('douyin');
   const [rewriteStrength, setRewriteStrength] = useState('balanced');
   const [rewriteVariants, setRewriteVariants] = useState(1);
-  const [extraRequirements, setExtraRequirements] = useState('');
   const [extract, setExtract] = useState({ state: 'idle', message: '' });
   const [rewrite, setRewrite] = useState({ state: 'idle', message: '' });
   const [tts, setTts] = useState({ state: 'idle', message: '' });
@@ -577,15 +805,40 @@ function App() {
   const [historyItems, setHistoryItems] = useState([]);
   const [storageStats, setStorageStats] = useState(null);
   const [usageStats, setUsageStats] = useState(null);
-  const [apiConfigOpen, setApiConfigOpen] = useState(false);
   const [serviceConfig, setServiceConfig] = useState(DEFAULT_SERVICE_CONFIG);
   const [serviceConfigStatus, setServiceConfigStatus] = useState({ state: 'idle', message: '' });
   const [authOpen, setAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
   const [authUser, setAuthUser] = useState(null);
   const isAdmin = authUser?.role === 'admin';
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [authStatus, setAuthStatus] = useState({ state: 'idle', message: '' });
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUsersStatus, setAdminUsersStatus] = useState({ state: 'idle', message: '' });
+  const [newUserForm, setNewUserForm] = useState({ username: '', password: '', role: 'user' });
+  const isAdminRoute = window.location.pathname.replace(/\/+$/, '') === '/admin';
+  const isRealtor = authUser?.role === 'realtor';
+  const [realtorForm, setRealtorForm] = useState({
+    area: '',
+    community: '',
+    propertyType: '住宅',
+    dealType: '二手房',
+    layout: '',
+    size: '',
+    price: '',
+    decoration: '',
+    orientation: '',
+    floor: '',
+    elevator: '',
+    metro: '',
+    school: '',
+    highlights: ['采光好', '户型方正'],
+    audience: ['改善家庭'],
+    contentDuration: '30秒（约160-220字）',
+    style: '成交转化',
+    callToAction: '预约看房',
+    notes: ''
+  });
+  const [realtorCopy, setRealtorCopy] = useState({ state: 'idle', message: '' });
 
   useEffect(() => {
     getJSON('/api/v1/app-config')
@@ -593,7 +846,6 @@ function App() {
         const nextDefault = data.default_background_video || FALLBACK_BACKGROUND_VIDEO;
         setDefaultBackgroundVideo(nextDefault);
         setEditVideoUrl(current => current === FALLBACK_BACKGROUND_VIDEO ? nextDefault : current);
-        setAuthMode(data.auth?.has_users ? 'login' : 'register');
       })
       .catch(() => {});
 
@@ -745,6 +997,9 @@ function App() {
       const user = data.user || null;
       setAuthUser(user);
       await refreshServiceConfig(user);
+      if (user?.role === 'admin') {
+        await refreshAdminUsers();
+      }
     } catch {
       setAuthToken('');
       setAuthUser(null);
@@ -764,15 +1019,18 @@ function App() {
       setAuthStatus({ state: 'error', message: '请输入用户名和密码' });
       return;
     }
-    setAuthStatus({ state: 'loading', message: authMode === 'register' ? '正在注册' : '正在登录' });
+    setAuthStatus({ state: 'loading', message: '正在登录' });
     try {
-      const { data } = await postJSON(`/api/v1/auth/${authMode}`, { username, password });
+      const { data } = await postJSON('/api/v1/auth/login', { username, password });
       setAuthToken(data.token || '');
       setAuthUser(data.user || null);
       setAuthForm({ username: '', password: '' });
-      setAuthStatus({ state: 'done', message: authMode === 'register' ? '注册成功' : '登录成功' });
+      setAuthStatus({ state: 'done', message: '登录成功' });
       setAuthOpen(false);
       await refreshServiceConfig(data.user || null);
+      if (data.user?.role === 'admin') {
+        await refreshAdminUsers();
+      }
       await refreshVoices(voiceId);
       await refreshUsage();
     } catch (err) {
@@ -784,7 +1042,7 @@ function App() {
     setAuthToken('');
     setAuthUser(null);
     setServiceConfig(DEFAULT_SERVICE_CONFIG);
-    setApiConfigOpen(false);
+    setAdminUsers([]);
     setAuthStatus({ state: 'idle', message: '' });
     refreshVoices('default');
     setUsageStats(null);
@@ -813,6 +1071,53 @@ function App() {
       setServiceConfigStatus({ state: 'done', message: '接口配置已保存' });
     } catch (err) {
       setServiceConfigStatus({ state: 'error', message: err.message });
+    }
+  }
+
+  async function refreshAdminUsers() {
+    try {
+      const data = await getJSON('/api/v1/admin/users?limit=200');
+      setAdminUsers(data.users || []);
+      setAdminUsersStatus(prev => prev.state === 'loading' ? { state: 'idle', message: '' } : prev);
+    } catch (err) {
+      setAdminUsers([]);
+      setAdminUsersStatus({ state: 'error', message: err.message });
+    }
+  }
+
+  function updateNewUserForm(key, value) {
+    setNewUserForm(prev => ({ ...prev, [key]: value }));
+    setAdminUsersStatus({ state: 'idle', message: '' });
+  }
+
+  async function createAdminUser() {
+    const username = newUserForm.username.trim();
+    const password = newUserForm.password;
+    if (!username || !password) {
+      setAdminUsersStatus({ state: 'error', message: '请输入用户名和密码' });
+      return;
+    }
+    setAdminUsersStatus({ state: 'loading', message: '正在新增用户' });
+    try {
+      await postJSON('/api/v1/admin/users', { username, password, role: newUserForm.role });
+      setNewUserForm({ username: '', password: '', role: 'user' });
+      await refreshAdminUsers();
+      setAdminUsersStatus({ state: 'done', message: '用户已新增' });
+    } catch (err) {
+      setAdminUsersStatus({ state: 'error', message: err.message });
+    }
+  }
+
+  async function deleteAdminUser(user) {
+    if (!user?.id) return;
+    if (!window.confirm(`确定删除用户「${user.username}」吗？`)) return;
+    setAdminUsersStatus({ state: 'loading', message: '正在删除用户' });
+    try {
+      await deleteJSON(`/api/v1/admin/users/${encodeURIComponent(user.id)}`);
+      await refreshAdminUsers();
+      setAdminUsersStatus({ state: 'done', message: '用户已删除' });
+    } catch (err) {
+      setAdminUsersStatus({ state: 'error', message: err.message });
     }
   }
 
@@ -893,16 +1198,15 @@ function App() {
           rewrite_length: rewriteLength,
           rewrite_platform: rewritePlatform,
           rewrite_strength: rewriteStrength,
-          rewrite_variants: rewriteVariants,
-          extra_requirements: extraRequirements
+          rewrite_variants: rewriteVariants
         },
         task => setRewrite({ state: 'loading', message: progressMessage('正在改写文案', task) })
       );
       let text = data.final_script || '';
       text = text
-        .replace(/[，。！？、；：,.!?;:]+/g, '\n')
+        .replace(/[。！？；;!?]+/g, '\n')
         .split(/\n+/)
-        .map(line => line.replace(/\s+/g, '').trim())
+        .map(line => line.replace(/\s+/g, '').replace(/^[，、：:,.]+|[，、：:,.]+$/g, '').trim())
         .filter(Boolean)
         .join('\n');
       if (!text) {
@@ -920,6 +1224,76 @@ function App() {
       setRenderedVideo(null);
     } catch (err) {
       setRewrite({ state: 'error', message: err.message });
+    }
+  }
+
+  function updateRealtorForm(key, value) {
+    setRealtorForm(prev => ({ ...prev, [key]: value }));
+    setRealtorCopy({ state: 'idle', message: '' });
+  }
+
+  async function handleRealtorGenerate() {
+    const source = buildRealtorSource(realtorForm);
+    const durationMeta = REALTOR_DURATION_META[realtorForm.contentDuration] || REALTOR_DURATION_META['30秒（约160-220字）'];
+    if (!realtorForm.community.trim() && !(realtorForm.highlights || []).length) {
+      setRealtorCopy({ state: 'error', message: '请填写楼盘或核心卖点' });
+      return;
+    }
+    setRealtorCopy({ state: 'loading', message: '正在生成房产文案' });
+    try {
+      const { data, elapsedMs } = await runBackgroundJob(
+        '/api/v1/rewrite/start',
+        {
+          reference_text: [
+            '你是一名有多年成交经验的资深房产经纪人，请根据房源信息生成专业短视频口播文案。',
+            '文案必须像真人经纪人在讲盘，不要像广告标语，不要堆砌形容词。',
+            '结构要求：',
+            '1. 前 3 秒用客户痛点或稀缺点开场，但不能夸大。',
+            '2. 说明区位、交通、配套或板块价值，给出清晰的购买理由。',
+            '3. 按户型、面积、楼层、装修、采光、税费等维度讲清房源优势。',
+            '4. 明确适合哪类客户，解释为什么适合。',
+            '5. 结尾给出自然的看房或咨询引导。',
+            '专业要求：',
+            '- 用房产行业表达，如板块、配套、通勤、梯户比、采光面、得房率、税费成本、置换改善、总价门槛。',
+            '- 如果信息缺失，不要编造具体学校、地铁距离、价格涨幅、收益率。',
+            '- 避免绝对化承诺，比如必涨、稳赚、全城最低、唯一机会。',
+            `- 每句话适合口播，节奏短，信息密度高，整体控制在 ${durationMeta.words}。`,
+            '房源信息：',
+            source
+          ].join('\n'),
+          rewrite_engine: 'ai',
+          rewrite_style: 'sales',
+          rewrite_tone: 'professional',
+          rewrite_length: durationMeta.rewriteLength,
+          rewrite_platform: 'douyin',
+          rewrite_strength: 'heavy',
+          rewrite_variants: 1
+        },
+        task => setRealtorCopy({ state: 'loading', message: progressMessage('正在生成房产文案', task) })
+      );
+      let text = data.final_script || '';
+      text = text
+        .replace(/[，。！？、；：,.!?;:]+/g, '\n')
+        .split(/\n+/)
+        .map(line => line.replace(/\s+/g, '').trim())
+        .filter(Boolean)
+        .join('\n');
+      if (!text) {
+        throw new Error('文案生成接口未返回有效内容');
+      }
+      setExtractedScript(source);
+      setSegments([]);
+      setFinalScript(text);
+      setRealtorCopy({ state: 'done', message: `文案已生成，${text.length} 字，${asSeconds(elapsedMs)}` });
+      setTts({ state: 'idle', message: '' });
+      setVideoEdit({ state: 'idle', message: '' });
+      setVideoUpload({ state: 'idle', message: '' });
+      setAudio(null);
+      setRenderedVideo(null);
+      refreshHistory();
+      refreshUsage();
+    } catch (err) {
+      setRealtorCopy({ state: 'error', message: err.message });
     }
   }
 
@@ -1416,6 +1790,28 @@ function App() {
     }
   }
 
+  if (isAdminRoute) {
+    return <AdminPage
+      authUser={authUser}
+      authForm={authForm}
+      authStatus={authStatus}
+      onAuthChange={updateAuthForm}
+      onLogin={submitAuth}
+      onLogout={logout}
+      serviceConfig={serviceConfig}
+      serviceConfigStatus={serviceConfigStatus}
+      onConfigChange={updateServiceConfig}
+      onConfigSave={saveServiceConfig}
+      users={adminUsers}
+      usersStatus={adminUsersStatus}
+      newUser={newUserForm}
+      onNewUserChange={updateNewUserForm}
+      onCreateUser={createAdminUser}
+      onDeleteUser={deleteAdminUser}
+      onRefreshUsers={refreshAdminUsers}
+    />;
+  }
+
   return <div className="app-shell">
     <section className="workspace">
       <header className="topbar">
@@ -1426,44 +1822,81 @@ function App() {
         <div className="top-actions">
           {authUser ? (
             <>
-              <span className="auth-badge">{authUser.username}{authUser.role === 'admin' ? ' · 管理员' : ''}</span>
+              <span className="auth-badge">{authUser.username}{authUser.role !== 'user' ? ` · ${ROLE_LABELS[authUser.role] || authUser.role}` : ''}</span>
               <button className="ghost small" onClick={logout}>退出</button>
             </>
           ) : (
             <button className="ghost small" onClick={() => setAuthOpen(true)}><UserRound size={18}/>登录</button>
           )}
           {isAdmin && (
-            <button className="ghost small" onClick={() => setApiConfigOpen(true)}><SlidersHorizontal size={18}/>接口配置</button>
+            <a className="ghost small" href="/admin"><SlidersHorizontal size={18}/>后台管理</a>
           )}
         </div>
       </header>
 
     {authOpen && (
       <AuthPanel
-        mode={authMode}
         form={authForm}
         status={authStatus}
-        onModeChange={mode => {
-          setAuthMode(mode);
-          setAuthStatus({ state: 'idle', message: '' });
-        }}
         onChange={updateAuthForm}
         onSubmit={submitAuth}
         onClose={() => setAuthOpen(false)}
       />
     )}
 
-    {apiConfigOpen && isAdmin && (
-      <ApiConfigPanel
-        config={serviceConfig}
-        status={serviceConfigStatus}
-        onClose={() => setApiConfigOpen(false)}
-        onChange={updateServiceConfig}
-        onSave={saveServiceConfig}
-      />
-    )}
-
     <main className="factory-layout">
+        {isRealtor ? (
+        <Section num="1-2" title="房产文案生成" sub="短视频口播" className="realtor-section" id="realtor-copy">
+          <div className="realtor-form">
+            <label>
+              <span>城市片区</span>
+              <input value={realtorForm.area} onChange={e => updateRealtorForm('area', e.target.value)} placeholder="杭州 滨江"/>
+            </label>
+            <label>
+              <span>小区楼盘</span>
+              <input value={realtorForm.community} onChange={e => updateRealtorForm('community', e.target.value)} placeholder="江南府"/>
+            </label>
+            <SelectField label="房源类型" options={REALTOR_OPTIONS.propertyType} value={realtorForm.propertyType} onChange={value => updateRealtorForm('propertyType', value)}/>
+            <SelectField label="交易类型" options={REALTOR_OPTIONS.dealType} value={realtorForm.dealType} onChange={value => updateRealtorForm('dealType', value)}/>
+            <SelectField label="户型" options={REALTOR_OPTIONS.layout} value={realtorForm.layout} onChange={value => updateRealtorForm('layout', value)}/>
+            <SelectField label="面积" options={REALTOR_OPTIONS.size} value={realtorForm.size} onChange={value => updateRealtorForm('size', value)}/>
+            <label>
+              <span>价格</span>
+              <input value={realtorForm.price} onChange={e => updateRealtorForm('price', e.target.value)} placeholder="总价 / 单价 / 预算区间"/>
+            </label>
+            <SelectField label="装修" options={REALTOR_OPTIONS.decoration} value={realtorForm.decoration} onChange={value => updateRealtorForm('decoration', value)}/>
+            <SelectField label="朝向采光" options={REALTOR_OPTIONS.orientation} value={realtorForm.orientation} onChange={value => updateRealtorForm('orientation', value)}/>
+            <SelectField label="楼层特点" options={REALTOR_OPTIONS.floor} value={realtorForm.floor} onChange={value => updateRealtorForm('floor', value)}/>
+            <SelectField label="梯户" options={REALTOR_OPTIONS.elevator} value={realtorForm.elevator} onChange={value => updateRealtorForm('elevator', value)}/>
+            <SelectField label="交通" options={REALTOR_OPTIONS.metro} value={realtorForm.metro} onChange={value => updateRealtorForm('metro', value)}/>
+            <SelectField label="教育" options={REALTOR_OPTIONS.school} value={realtorForm.school} onChange={value => updateRealtorForm('school', value)}/>
+            <MultiSelectField label="核心卖点" options={REALTOR_OPTIONS.highlights} value={realtorForm.highlights} onChange={value => updateRealtorForm('highlights', value)}/>
+            <MultiSelectField label="目标客户" options={REALTOR_OPTIONS.audience} value={realtorForm.audience} onChange={value => updateRealtorForm('audience', value)}/>
+            <SelectField label="内容时长" options={REALTOR_OPTIONS.contentDuration} value={realtorForm.contentDuration} onChange={value => updateRealtorForm('contentDuration', value)}/>
+            <SelectField label="文案风格" options={REALTOR_OPTIONS.style} value={realtorForm.style} onChange={value => updateRealtorForm('style', value)}/>
+            <SelectField label="行动引导" options={REALTOR_OPTIONS.callToAction} value={realtorForm.callToAction} onChange={value => updateRealtorForm('callToAction', value)}/>
+            <label className="wide">
+              <span>补充信息</span>
+              <textarea value={realtorForm.notes} onChange={e => updateRealtorForm('notes', e.target.value)} placeholder="学区、税费、看房时间、业主情况"/>
+            </label>
+          </div>
+          <div className="row-actions realtor-actions">
+            <button className="active" onClick={handleRealtorGenerate} disabled={realtorCopy.state === 'loading'}>
+              {realtorCopy.state === 'loading' ? <Loader2 size={15}/> : <Wand2 size={15}/>}生成文案
+            </button>
+            <button onClick={() => copyText(finalScript)}><Copy size={15}/>复制</button>
+          </div>
+          <StatusLine state={realtorCopy.state} text={realtorCopy.message}/>
+          <label>生成结果</label>
+          <textarea
+            className="script-box textarea-box realtor-output"
+            value={finalScript}
+            onChange={e => setFinalScript(e.target.value)}
+            placeholder="房产口播文案会显示在这里"
+          />
+        </Section>
+        ) : (
+        <>
         <Section num="1" title="输入素材" sub="视频链接" className="link-section" id="source">
           <label className="field-label">视频链接 <i>*</i></label>
           <div className="link-input">
@@ -1522,12 +1955,6 @@ function App() {
 	              </select>
 	            </div>
 	          </div>
-          <textarea
-            className="text-input extra-requirements"
-            value={extraRequirements}
-            onChange={e => setExtraRequirements(e.target.value)}
-            placeholder="补充要求，比如：更像小红书口吻、加入反转、不要太夸张"
-          />
         </div>
         <textarea
           className="script-box textarea-box rewrite-output"
@@ -1548,6 +1975,8 @@ function App() {
         </div>
         <StatusLine state={rewrite.state} text={rewrite.message}/>
         </Section>
+        </>
+        )}
 
         <Section num="3" title="音色设置" sub="接口语音合成" className="voice-section" id="voice">
           <div className="voice-grid app-voice-grid">

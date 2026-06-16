@@ -292,9 +292,159 @@ select:focus-visible {
 }
 
 .link-section,
-.rewrite-section {
+.rewrite-section,
+.realtor-section {
   display: flex;
   flex-direction: column;
+}
+
+.realtor-section {
+  grid-column: span 2;
+}
+
+.realtor-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.realtor-form label {
+  margin: 0;
+  min-width: 0;
+}
+
+.realtor-form label span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.realtor-form input,
+.realtor-form select,
+.realtor-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.realtor-form input,
+.realtor-form select {
+  height: 38px;
+}
+
+.realtor-form textarea {
+  min-height: 78px;
+  padding-top: 9px;
+  resize: vertical;
+}
+
+.realtor-form .wide {
+  grid-column: span 2;
+}
+
+.multi-select-field {
+  min-width: 0;
+}
+
+.multi-select-field > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.multi-select-dropdown {
+  position: relative;
+}
+
+.multi-select-dropdown summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 38px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.multi-select-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.multi-select-dropdown summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-select-dropdown[open] summary {
+  border-color: var(--accent);
+}
+
+.multi-select-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 230px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.multi-select-option:hover {
+  background: var(--surface-2);
+}
+
+.multi-select-option input {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  accent-color: var(--accent);
+}
+
+.multi-select-option span {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.realtor-actions {
+  margin-top: 12px;
+}
+
+.realtor-output {
+  flex: 1;
+  min-height: 210px;
 }
 
 .section-title {
@@ -432,11 +582,6 @@ select,
   padding: 11px 12px;
 }
 
-.extra-requirements {
-  min-height: 62px;
-  margin-top: 10px;
-}
-
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -564,12 +709,6 @@ select,
 
 .rewrite-section .rewrite-tuning {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.rewrite-section .extra-requirements {
-  height: 64px;
-  min-height: 64px;
-  overflow: auto;
 }
 
 .moviepy-source-input input {
@@ -1338,6 +1477,12 @@ select,
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
 }
 
+.api-config-panel.embedded,
+.auth-panel.embedded {
+  width: 100%;
+  box-shadow: none;
+}
+
 .auth-panel {
   width: min(420px, 100%);
   border: 1px solid var(--line);
@@ -1477,6 +1622,119 @@ select,
 .api-config-inline-toggle {
   grid-column: 1 / -1;
   flex-direction: row !important;
+}
+
+.admin-shell {
+  min-height: 100vh;
+}
+
+.admin-workspace {
+  width: min(1280px, calc(100vw - 32px));
+}
+
+.admin-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-card,
+.admin-login-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.admin-login-panel {
+  width: min(440px, 100%);
+  margin-top: 18px;
+}
+
+.admin-card {
+  padding: 18px;
+}
+
+.admin-card h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.admin-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.admin-user-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) 140px auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.admin-user-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-user-form span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-user-form input,
+.admin-user-form select {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.admin-table th {
+  color: var(--muted);
+  background: var(--surface-2);
+  font-weight: 700;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.ghost.danger {
+  color: #ff8bad;
 }
 
 .embedded-history-title {
@@ -1628,6 +1886,11 @@ select,
     display: none;
   }
 
+  .admin-shell .top-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
   .factory-layout {
     grid-template-columns: 1fr;
     grid-auto-rows: 680px;
@@ -1653,11 +1916,27 @@ select,
   .app-voice-grid,
   .api-config-grid,
   .api-config-fields,
+  .admin-user-form,
+  .realtor-form,
 	  .moviepy-advanced-controls,
 	  .moviepy-controls,
 	  .wav2lip-controls {
 	    grid-template-columns: 1fr;
 	  }
+
+  .realtor-section,
+  .realtor-form .wide {
+    grid-column: auto;
+  }
+
+  .admin-workspace {
+    width: min(100%, 1280px);
+  }
+
+  .admin-card-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 
   .voice-section .audio-card:last-child {
     grid-column: auto;

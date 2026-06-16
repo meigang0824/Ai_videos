@@ -27,7 +27,6 @@ from api_clients import (
     call_llm,
     call_tts,
     call_video_compose,
-    list_tts_speakers,
     load_service_config,
     save_service_config,
 )
@@ -86,6 +85,10 @@ class AuthPayload(BaseModel):
     password: str
 
 
+class AdminUserPayload(AuthPayload):
+    role: str = "user"
+
+
 class ExtractPayload(BaseModel):
     taskId: str | None = None
     reference_url: str | None = None
@@ -103,7 +106,6 @@ class RewritePayload(BaseModel):
     rewrite_platform: str = "douyin"
     rewrite_strength: str = "balanced"
     rewrite_variants: int = 1
-    extra_requirements: str | None = ""
 
 
 class TtsPayload(BaseModel):
@@ -206,6 +208,25 @@ def _apply_object_result(target: dict[str, Any], field: str, upload: dict[str, A
         target[f"{field}_object_url"] = upload.get("url")
     if upload.get("error"):
         target[f"{field}_object_error"] = upload.get("error")
+
+
+def _sync_voice_object_storage(voice_id: str, user_id: str, path_value: str):
+    path = Path(path_value)
+    if not path.exists() or not object_storage.enabled():
+        return
+    audio_upload = _upload_to_object_storage(path, user_id=user_id, purpose="voices/audio", filename=path.name)
+    current = voice_store.get_voice(voice_id, user_id=user_id)
+    if not current:
+        return
+    voice = dict(current)
+    if audio_upload:
+        voice["storage_provider"] = audio_upload.get("provider") or "aliyun_oss"
+        voice["object_key"] = audio_upload.get("key") or voice.get("object_key") or ""
+        if audio_upload.get("url"):
+            voice["object_url"] = audio_upload.get("url")
+        if audio_upload.get("error"):
+            voice["object_error"] = audio_upload.get("error")
+    voice_store.upsert_voice(voice)
 
 
 def _redirect_to_object(key: str | None):
@@ -483,24 +504,13 @@ def _execute_extract_task(task: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": task_id, "extracted_script": text, "segments": []}
     if payload.get("reference_url") and str(payload.get("reference_url")).strip():
         reference_url = str(payload.get("reference_url")).strip()
-        try:
-            _update(task_id, 25, "正在调用链接转写接口")
-            result = call_asr_url(reference_url, model=model)
-            method = "url_transcribe"
-        except Exception as exc:
-            _update(task_id, 35, "链接转写失败，正在下载音频兜底")
-            audio_path = _extract_audio_from_url(reference_url, TMP_DIR / f"{task_id}_extract_audio.wav")
-            _update(task_id, 70, "正在调用 ASR 接口")
-            result = call_asr(audio_path, model=model)
-            method = "download_audio_fallback"
-            result["fallback_error"] = str(exc)
+        _update(task_id, 25, "正在调用链接转写接口")
+        result = call_asr_url(reference_url, model=model)
+        method = "url_transcribe"
         text = result.get("text") or ""
         if not text:
             raise RuntimeError("ASR 接口未返回文案")
-        response_payload = {"task_id": task_id, "extracted_script": text, "segments": result.get("segments") or [], "transcribe_method": method}
-        if result.get("fallback_error"):
-            response_payload["fallback_error"] = result["fallback_error"]
-        return response_payload
+        return {"task_id": task_id, "extracted_script": text, "segments": result.get("segments") or [], "transcribe_method": method}
 
     base_url = _payload_base_url(payload)
     path = _source_path_from_payload(payload, task_id, base_url)
@@ -510,20 +520,8 @@ def _execute_extract_task(task: dict[str, Any]) -> dict[str, Any]:
     audio_path = path
     if suffix in ALLOWED_VIDEO_SUFFIXES:
         _update(task_id, 35, "正在调用视频转写接口")
-        try:
-            result = call_asr_media(path, is_video=True, model=model)
-            method = "video_transcribe"
-        except Exception as exc:
-            _update(task_id, 45, "视频转写失败，正在从视频提取音频")
-            try:
-                audio_path = _extract_audio_from_media_file(path, TMP_DIR / f"{task_id}_uploaded_audio.wav")
-            except subprocess.CalledProcessError as media_exc:
-                message = (media_exc.stderr or media_exc.stdout or "视频音频提取失败").strip()
-                raise RuntimeError(message[-600:]) from media_exc
-            _update(task_id, 70, "正在调用 ASR 接口")
-            result = call_asr(audio_path, model=model)
-            method = "video_audio_fallback"
-            result["fallback_error"] = str(exc)
+        result = call_asr_media(path, is_video=True, model=model)
+        method = "video_transcribe"
     else:
         _update(task_id, 60, "正在调用 ASR 接口")
         result = call_asr_media(audio_path, is_video=False, model=model)
@@ -539,8 +537,6 @@ def _execute_extract_task(task: dict[str, Any]) -> dict[str, Any]:
         "size_bytes": size,
         "transcribe_method": method,
     }
-    if result.get("fallback_error"):
-        result_payload["fallback_error"] = result["fallback_error"]
     for key in ("source_storage_provider", "source_object_key", "source_object_url", "source_object_error"):
         if payload.get(key):
             result_payload[key] = payload[key]
@@ -795,7 +791,6 @@ def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
 篇幅：{payload.rewrite_length}
 平台：{payload.rewrite_platform}
 改写强度：{payload.rewrite_strength}
-补充要求：{payload.extra_requirements or "无"}
 
 原文：
 {payload.reference_text}
@@ -1069,11 +1064,7 @@ def job_runner_status(request: Request):
 
 @app.post("/api/v1/auth/register")
 def auth_register(payload: AuthPayload):
-    try:
-        user = auth_store.create_user(payload.username, payload.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"user": user, "token": auth_store.issue_token(user)}
+    raise HTTPException(status_code=410, detail="注册功能已关闭，请联系管理员创建账号")
 
 
 @app.post("/api/v1/auth/login")
@@ -1114,6 +1105,32 @@ def admin_users(request: Request, limit: int = 100):
     _require_admin(request)
     users = auth_store.list_users(limit=limit)
     return {"users": users, "total": len(users)}
+
+
+@app.post("/api/v1/admin/users")
+def admin_create_user(payload: AdminUserPayload, request: Request):
+    _require_admin(request)
+    role = payload.role if payload.role in {"admin", "user", "realtor"} else "user"
+    try:
+        user = auth_store.create_user(payload.username, payload.password, role=role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"user": user}
+
+
+@app.delete("/api/v1/admin/users/{user_id}")
+def admin_delete_user(user_id: str, request: Request):
+    current = _require_admin(request)
+    if user_id == current["id"]:
+        raise HTTPException(status_code=400, detail="不能删除当前登录的管理员")
+    user = auth_store.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.get("role") == "admin":
+        admins = [item for item in auth_store.list_users(limit=500) if item.get("role") == "admin"]
+        if len(admins) <= 1:
+            raise HTTPException(status_code=400, detail="至少保留一个管理员")
+    return {"deleted": auth_store.delete_user(user_id)}
 
 
 @app.get("/api/v1/admin/tasks")
@@ -1366,45 +1383,23 @@ async def upload_video(request: Request, file: UploadFile = File(...)):
 
 
 @app.post("/api/v1/upload-voice")
-async def upload_voice(request: Request, file: UploadFile = File(...)):
+async def upload_voice(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     user_id = _request_user_id(request)
     path, size = await _save_upload(file, VOICE_DIR, ALLOWED_AUDIO_SUFFIXES)
     voice_id = path.stem
-    ref_text = ""
-    try:
-        ref_text = call_asr(path).get("text") or ""
-    except Exception:
-        ref_text = ""
     voice = {
         "id": voice_id,
         "name": f"音色 {datetime.now().strftime('%m%d-%H%M')}",
         "kind": "local",
         "user_id": user_id,
         "ref_wav": str(path),
-        "ref_text": ref_text,
+        "ref_text": "",
         "size_bytes": size,
         "created_at": _now(),
     }
-    audio_upload = _upload_to_object_storage(path, user_id=user_id, purpose="voices/audio", filename=path.name)
-    if audio_upload:
-        voice["storage_provider"] = audio_upload.get("provider") or "aliyun_oss"
-        voice["object_key"] = audio_upload.get("key") or ""
-        if audio_upload.get("url"):
-            voice["object_url"] = audio_upload.get("url")
-        if audio_upload.get("error"):
-            voice["object_error"] = audio_upload.get("error")
-    meta_path = path.with_suffix(path.suffix + ".json")
-    meta_path.write_text(__import__("json").dumps(voice, ensure_ascii=False, indent=2), encoding="utf-8")
-    meta_upload = _upload_to_object_storage(meta_path, user_id=user_id, purpose="voices/meta", filename=meta_path.name)
-    if meta_upload:
-        voice["meta_object_key"] = meta_upload.get("key") or ""
-        if meta_upload.get("url"):
-            voice["meta_object_url"] = meta_upload.get("url")
-        if meta_upload.get("error"):
-            voice["meta_object_error"] = meta_upload.get("error")
-        meta_path.write_text(__import__("json").dumps(voice, ensure_ascii=False, indent=2), encoding="utf-8")
-        _upload_to_object_storage(meta_path, user_id=user_id, purpose="voices/meta", filename=meta_path.name)
     voice_store.upsert_voice(voice)
+    if object_storage.enabled():
+        background_tasks.add_task(_sync_voice_object_storage, voice_id, user_id, str(path))
     return {"voice": voice, "size_bytes": size}
 
 
@@ -1428,23 +1423,7 @@ def voices(request: Request):
                 "meta_object_key": item.get("meta_object_key") or "",
             }
         )
-    try:
-        speakers = list_tts_speakers()
-    except Exception:
-        speakers = []
-    external_items = [
-        {
-            "id": speaker,
-            "name": speaker,
-            "kind": "external",
-            "speaker": speaker,
-            "ref_wav": "",
-            "ref_text": "",
-            "size_bytes": 0,
-        }
-        for speaker in speakers
-    ]
-    return {"voices": [*local_items, *external_items]}
+    return {"voices": local_items}
 
 
 @app.get("/api/v1/voices/{voice_id}/audio")

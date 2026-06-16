@@ -10,7 +10,7 @@ curl http://127.0.0.1:8010/api/v1/health
 
 ## 2. 配置模型服务
 
-页面右上角“接口配置”里需要先配置：
+后台管理页 `/admin` 的“接口配置”里需要先配置：
 
 - `文案提取 ASR`
 - `语音合成 TTS`
@@ -18,17 +18,12 @@ curl http://127.0.0.1:8010/api/v1/health
 如果使用“短视频本地模型服务”这类 FastAPI 服务，ASR 推荐配置：
 
 ```text
-主接口：http://192.168.1.9:8000/v1/audio/transcribe
-文件字段：file
-视频字段：video
-链接字段：url
-链接转写接口：http://192.168.1.9:8000/v1/audio/transcribe-url
-视频转写接口：http://192.168.1.9:8000/v1/video/transcribe
-文本路径：text
-分段路径：segments
+视频链接提取接口：http://192.168.1.9:8000/v1/audio/transcribe-url
+视频文件提取接口：http://192.168.1.9:8000/v1/video/transcribe
+模型名：base
 ```
 
-`链接转写接口` 和 `视频转写接口` 可以留空；当主接口是 `/v1/audio/transcribe` 时，后端会自动推导 `/v1/audio/transcribe-url` 和 `/v1/video/transcribe`。
+页面区分“视频链接”和“上传视频文件”两个入口。链接转写或视频文件转写失败时任务会直接失败并返回错误，不再自动下载音频或抽取音频兜底。
 
 也可以直接调用：
 
@@ -72,11 +67,11 @@ curl -X POST http://127.0.0.1:8010/api/v1/script-extract/start \
 }
 ```
 
-说明：这个接口会优先调用 ASR 服务的链接转写接口，例如 `/v1/audio/transcribe-url`。如果该接口失败，才会回落到 `yt-dlp` 下载音频后再调用音频转写接口。
+说明：这个接口只调用 ASR 服务的链接转写接口，例如 `/v1/audio/transcribe-url`。如果该接口失败，任务直接失败并返回错误。
 
 ## 4. 上传文件提取文案
 
-支持音频或视频文件。上传视频时后端会优先调用 ASR 服务的视频转写接口，例如 `/v1/video/transcribe`；如果该接口失败，才会回落到 ffmpeg 抽音频后再调用音频转写接口。
+支持音频或视频文件。上传视频时后端只调用 ASR 服务的视频转写接口，例如 `/v1/video/transcribe`；如果该接口失败，任务直接失败并返回错误。
 
 ```text
 POST /api/v1/script-extract/upload
@@ -159,12 +154,12 @@ curl -X POST http://127.0.0.1:8010/api/v1/upload-voice \
     "id": "1718000000000_ab12cd",
     "name": "音色 0615-1050",
     "ref_wav": "/Users/apple/CosyVoice_API_Only/voices/xxx.wav",
-    "ref_text": "ASR 识别出的参考文本"
+    "ref_text": ""
   }
 }
 ```
 
-注意：导入音色不会覆盖旧音色，会生成新的音色记录。音色名称、归属、参考音频路径、OSS key 和参考文本会写入 `voices` 数据表，同时保留 `voices/*.json` 作为兼容备份。
+注意：导入音色不会覆盖旧音色，会生成新的音色记录。导入时只保存音频和数据库记录，不再同步调用 ASR 识别参考文本；OSS 同步在后台执行，避免导入页面长时间等待。
 
 ## 7. 查询音色列表
 
@@ -259,7 +254,7 @@ curl -L -o speech.wav http://127.0.0.1:8010/api/v1/audio/speech_demo_001
 
 ## 10. 典型流程
 
-1. `POST /api/v1/upload-voice` 导入参考录音，拿到 `voice.ref_wav` 和 `voice.ref_text`
+1. `POST /api/v1/upload-voice` 导入参考录音，拿到 `voice.ref_wav`
 2. `POST /api/v1/script-extract/start` 或 `/upload` 提取文案
 3. `GET /api/v1/jobs/{task_id}` 拿到 `extracted_script`
 4. `POST /api/v1/speech/start` 生成语音
