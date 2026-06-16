@@ -817,7 +817,8 @@ def _fast_rewrite(text: str) -> str:
 def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
     system = (
         "你是短视频口播文案改写专家。输出必须是中文口播文案。"
-        "每句话单独一段，保留正常中文标点，不要把一句话硬拆成多行，不要编号，不要标题，不要解释。"
+        "每句话单独一段，可以主动添加逗号、句号、问号、感叹号等中文标点来体现口播停顿。"
+        "不要把一句话硬拆成多行，不要编号，不要标题，不要解释。"
     )
     realtor_context = ""
     if payload.realtor_context:
