@@ -37,6 +37,7 @@ from pipeline.job_runner import job_runner
 from pipeline.moviepy_service import download_or_copy_media, render_video
 from pipeline.object_storage import object_storage
 from pipeline.task_store import task_store
+from pipeline.voice_store import voice_store
 
 
 APP_NAME = "CosyVoice API Only"
@@ -254,11 +255,13 @@ def _voice_visible_to_user(item: dict[str, Any], user: dict[str, Any]) -> bool:
 
 
 def _iter_voice_meta() -> list[dict[str, Any]]:
-    items = []
-    for meta_path in VOICE_DIR.glob("*.json"):
-        item = _load_voice_meta(meta_path)
-        if item:
-            items.append(item)
+    items = voice_store.list_voices()
+    if not items:
+        items = []
+        for meta_path in VOICE_DIR.glob("*.json"):
+            item = _load_voice_meta(meta_path)
+            if item:
+                items.append(item)
     items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return items
 
@@ -266,6 +269,9 @@ def _iter_voice_meta() -> list[dict[str, Any]]:
 def _find_user_voice(voice_id: str | None, user: dict[str, Any]) -> dict[str, Any] | None:
     if not voice_id:
         return None
+    item = voice_store.get_voice(voice_id)
+    if item and _voice_visible_to_user(item, user):
+        return item
     for item in _iter_voice_meta():
         if item.get("id") == voice_id and _voice_visible_to_user(item, user):
             return item
@@ -274,6 +280,9 @@ def _find_user_voice(voice_id: str | None, user: dict[str, Any]) -> dict[str, An
 
 def _find_user_voice_by_path(path: Path, user: dict[str, Any]) -> dict[str, Any] | None:
     resolved = path.expanduser()
+    item = voice_store.get_voice_by_path(resolved)
+    if item and _voice_visible_to_user(item, user):
+        return item
     for item in _iter_voice_meta():
         ref_path = Path(item.get("ref_wav") or "").expanduser()
         if _voice_visible_to_user(item, user) and ref_path == resolved:
@@ -1395,6 +1404,7 @@ async def upload_voice(request: Request, file: UploadFile = File(...)):
             voice["meta_object_error"] = meta_upload.get("error")
         meta_path.write_text(__import__("json").dumps(voice, ensure_ascii=False, indent=2), encoding="utf-8")
         _upload_to_object_storage(meta_path, user_id=user_id, purpose="voices/meta", filename=meta_path.name)
+    voice_store.upsert_voice(voice)
     return {"voice": voice, "size_bytes": size}
 
 
@@ -1414,6 +1424,8 @@ def voices(request: Request):
                 "ref_text": item.get("ref_text") or "",
                 "size_bytes": item.get("size_bytes") or 0,
                 "created_at": item.get("created_at"),
+                "object_key": item.get("object_key") or "",
+                "meta_object_key": item.get("meta_object_key") or "",
             }
         )
     try:

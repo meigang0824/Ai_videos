@@ -49,6 +49,26 @@ uploads_table = Table(
     Column("created_at", String(64), nullable=False),
 )
 
+voices_table = Table(
+    "voices",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("user_id", String(64), nullable=False, default="local", index=True),
+    Column("name", String(255), nullable=False),
+    Column("kind", String(32), nullable=False, default="local"),
+    Column("ref_wav", Text, nullable=False),
+    Column("ref_text", Text),
+    Column("size_bytes", Integer, nullable=False, default=0),
+    Column("storage_provider", String(64)),
+    Column("object_key", Text),
+    Column("object_url", Text),
+    Column("object_error", Text),
+    Column("meta_object_key", Text),
+    Column("meta_object_url", Text),
+    Column("meta_object_error", Text),
+    Column("created_at", String(64), nullable=False),
+)
+
 
 def _sqlite_url(path: Path) -> str:
     return f"sqlite:///{path}"

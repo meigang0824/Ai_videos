@@ -74,9 +74,9 @@ ALIYUN_OSS_SIGNED_URL_TTL=3600
 
 第一次在页面右上角登录入口注册的用户会自动成为管理员。已有用户后，任务、上传、历史记录和文件访问会按登录用户隔离；保存接口配置和清理存储等敏感操作需要管理员权限。设置 `AUTH_REQUIRED=1` 后，即使还没有注册用户，也会要求按登录态接入。
 
-Docker Compose 部署默认使用 PostgreSQL 保存用户、任务和上传记录，并通过 Alembic 在容器启动时自动执行数据库迁移。本地脚本启动且未设置 `DATABASE_URL` 时，会回落到 `backend/storage/*.sqlite3`，首次启动会把旧的 `backend/storage/task_store.json` 历史迁移进去，旧记录归属为 `local`。
+Docker Compose 部署默认使用 PostgreSQL 保存用户、任务、上传记录和音色记录，并通过 Alembic 在容器启动时自动执行数据库迁移。本地脚本启动且未设置 `DATABASE_URL` 时，会回落到 `backend/storage/*.sqlite3`，首次启动会把旧的 `backend/storage/task_store.json` 历史迁移进去，旧记录归属为 `local`。
 
-导入音色会写入当前登录用户归属，普通用户只能看到和试听自己的本地音色。升级前已经存在、没有 `user_id` 的旧音色会按 `local` 处理，管理员可以继续使用。
+导入音色会写入当前登录用户归属，并保存到 `voices` 数据表；普通用户只能看到和试听自己的本地音色。旧的 `voices/*.json` 元数据会在服务启动时自动迁移进数据库，并继续保留为兼容备份。
 
 后台任务支持两种执行器：`JOB_RUNNER_BACKEND=local` 使用本地线程池，适合单机开发；`JOB_RUNNER_BACKEND=celery` 使用 Redis/Celery，适合 Docker/生产部署。`GET /api/v1/job-runner` 可查看当前执行器状态。Docker Compose 默认启动 `app`、`worker` 和 `redis`，API 进程只负责任务入库和投递，Celery worker 负责实际执行。
 

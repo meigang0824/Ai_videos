@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 import api_server
 from pipeline.auth_store import AuthStore
 from pipeline.task_store import TaskStore
+from pipeline.voice_store import VoiceStore
 
 
 class DummyJobRunner:
@@ -131,3 +132,39 @@ def test_tts_sample_start_reuses_success_task_from_store(tmp_path, monkeypatch):
     assert response.json()["cached"] is True
     assert response.json()["status"] == "success"
     assert job_runner.submitted == []
+
+
+def test_upload_voice_persists_voice_name_in_database(tmp_path, monkeypatch):
+    auth_store = AuthStore(tmp_path / "auth.sqlite3")
+    voice_store = VoiceStore(tmp_path / "voices.sqlite3", migrate=False)
+    voice_dir = tmp_path / "voices"
+    voice_dir.mkdir()
+    monkeypatch.setattr(api_server, "auth_store", auth_store)
+    monkeypatch.setattr(api_server, "voice_store", voice_store)
+    monkeypatch.setattr(api_server, "VOICE_DIR", voice_dir)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+
+    client = TestClient(api_server.app)
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"username": "voice_user", "password": "TestPass12345"},
+    ).json()
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    response = client.post(
+        "/api/v1/upload-voice",
+        headers=headers,
+        files={"file": ("demo.wav", b"RIFFdemo", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    voice = response.json()["voice"]
+    stored = voice_store.get_voice(voice["id"])
+    assert stored is not None
+    assert stored["name"] == voice["name"]
+    assert stored["user_id"] == registered["user"]["id"]
+
+    listed = client.get("/api/v1/voices", headers=headers)
+    assert listed.status_code == 200
+    names = [item["name"] for item in listed.json()["voices"]]
+    assert voice["name"] in names
