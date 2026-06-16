@@ -815,15 +815,51 @@ def _fast_rewrite(text: str) -> str:
     return _format_script_lines("。".join(rewritten))
 
 
-def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
+def _realtor_rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
+    context = payload.realtor_context or {}
     system = (
-        "你是短视频口播文案改写专家。输出必须是中文口播文案。"
-        "输出一整段文本，不要换行。可以主动添加逗号、句号、问号、感叹号等中文标点来体现口播停顿。"
-        "不要编号，不要标题，不要解释。"
+        "你是一名成交能力强、表达克制真实的资深房产经纪人，也懂短视频口播。"
+        "你的目标不是罗列房源信息，而是让目标客户觉得这套房值得私信或约看。"
+        "输出一整段中文口播正文，不要换行，不要标题，不要编号，不要解释。"
+        "可以主动添加逗号、句号、问号、感叹号等中文标点，让语气像真人在镜头前说话。"
     )
-    realtor_context = ""
+    user = f"""
+请根据结构化房源字段生成一条房产短视频口播文案。
+
+内部写作方法：
+1. 先判断最可能成交的目标客户，以及这套房最强的 2-3 个成交理由。
+2. 第一句直接切客户真实顾虑或生活场景，不要用“今天这套房”“很多客户”“这套房源”这种泛开头。
+3. 每个卖点都要翻译成客户利益，比如省钱、省事、住得舒服、老人孩子方便、换房压力更小。
+4. 信息不够时少说，不要编造学校名称、地铁距离、涨幅、收益率、唯一性。
+5. 结尾给一个自然动作，引导私信、看房、拿对比表或税费方案，不要喊口号。
+
+语言要求：
+- 像经纪人当面沟通，不像楼书广告，不像 AI 总结。
+- 多用短句和具体场景，少用抽象形容词。
+- 不要堆砌“板块价值、全面兑现、安全垫、黄金楼层、完美、闭眼入、稳赚、必涨、全城最低、唯一机会”等油腻或违规表达。
+- 只输出最终正文，一整段，不换行。
+
+内容时长：{context.get("contentDuration") or payload.rewrite_length}
+文案风格：{context.get("style") or payload.rewrite_style}
+行动引导：{context.get("callToAction") or "自然邀约"}
+
+结构化房源字段：
+{json.dumps(context, ensure_ascii=False, indent=2)}
+
+前端整理的房源信息：
+{payload.reference_text}
+"""
+    return system, user
+
+
+def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
     if payload.realtor_context:
-        realtor_context = "\n结构化房源字段：\n" + json.dumps(payload.realtor_context, ensure_ascii=False, indent=2)
+        return _realtor_rewrite_prompt(payload)
+    system = (
+        "你是短视频口播文案策划，擅长把普通文字改成有传播力、有转化力的真人口播。"
+        "输出一整段中文正文，不要换行，不要标题，不要编号，不要解释。"
+        "可以主动添加逗号、句号、问号、感叹号等中文标点，让节奏自然。"
+    )
     user = f"""
 请改写下面文案。
 
@@ -833,9 +869,15 @@ def _rewrite_prompt(payload: RewritePayload) -> tuple[str, str]:
 平台：{payload.rewrite_platform}
 改写强度：{payload.rewrite_strength}
 
+改写要求：
+1. 不要只是换同义词，要重组表达，让开头更能抓住目标用户。
+2. 保留原文核心事实和观点，但删掉空话、套话、重复表达。
+3. 如果是转化型内容，要写出痛点、利益点和自然行动引导。
+4. 语言像真人口播，少用“首先、其次、最后”和报告式总结。
+5. 只输出最终正文，一整段，不换行。
+
 原文：
 {payload.reference_text}
-{realtor_context}
 """
     return system, user
 

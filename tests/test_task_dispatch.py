@@ -39,22 +39,27 @@ def test_run_task_executes_rewrite_payload_from_store(tmp_path, monkeypatch):
 
 def test_rewrite_prompt_keeps_realtor_context():
     payload = api_server.RewritePayload(
-        reference_text="房产生成提示词",
+        reference_text="城市片区：滨江\n核心卖点：采光好、户型方正",
         realtor_context={
             "community": "江南府",
             "highlights": ["采光好", "户型方正"],
             "audience": ["改善家庭"],
+            "callToAction": "预约看房",
         },
         rewrite_style="sales",
         rewrite_tone="professional",
     )
 
-    _, user = api_server._rewrite_prompt(payload)
+    system, user = api_server._rewrite_prompt(payload)
 
+    assert "资深房产经纪人" in system
+    assert "一整段" in system
     assert "结构化房源字段" in user
     assert "江南府" in user
     assert "采光好" in user
     assert "改善家庭" in user
+    assert "客户利益" in user
+    assert "自然动作" in user
 
 
 def test_format_script_lines_keeps_rewrite_as_one_paragraph():
