@@ -31,7 +31,6 @@ import './app.css';
 const API_BASE = '';
 const AUTH_TOKEN_KEY = 'cosyvoice_auth_token';
 const TRANSIENT_HTTP_STATUS = new Set([502, 503, 504]);
-const MAX_SCRIPT_LINE_CHARS = 18;
 
 const defaultPrompt = {
   url: ''
@@ -365,21 +364,14 @@ function wrapPreviewCaption(text, maxChars) {
   return lines.join('\n');
 }
 
-function wrapScriptLine(line, maxChars = MAX_SCRIPT_LINE_CHARS) {
-  const clean = (line || '').replace(/\s+/g, '').trim();
-  if (!clean) return [];
-  const lines = [];
-  for (let index = 0; index < clean.length; index += maxChars) {
-    lines.push(clean.slice(index, index + maxChars));
-  }
-  return lines;
-}
-
-function normalizeScriptText(text, splitPattern = /[，。！？、；：,.!?;:]+/g) {
+function normalizeScriptText(text) {
   return (text || '')
-    .replace(splitPattern, '\n')
     .split(/\n+/)
-    .flatMap(line => wrapScriptLine(line.replace(/^[，、：:,.]+|[，、：:,.]+$/g, '')))
+    .flatMap(line => line
+      .replace(/\s+/g, '')
+      .split(/(?<=[。！？!?；;])/g)
+      .map(part => part.replace(/^[，、：:,.]+|[，、：:,.]+$/g, '').trim())
+    )
     .filter(Boolean)
     .join('\n');
 }
@@ -1290,7 +1282,7 @@ function App() {
         },
         task => setRewrite({ state: 'loading', message: progressMessage('正在改写文案', task) })
       );
-      const text = normalizeScriptText(data.final_script || '', /[。！？；;!?]+/g);
+      const text = normalizeScriptText(data.final_script || '');
       if (!text) {
         throw new Error('改写接口未返回有效文案');
       }
@@ -1339,7 +1331,7 @@ function App() {
             '5. 结尾给出自然行动引导，像经纪人口头邀请，不要喊口号。',
             '表达要求：',
             '- 多用短句，像口播，不要长难句。',
-            `- 必须一句一行，每行不超过 ${MAX_SCRIPT_LINE_CHARS} 个汉字，超过就拆成两行。`,
+            '- 必须一句一段，保留正常中文标点，不要把一句话硬拆成多行。',
             '- 少用抽象词，多用具体感受和选择理由。',
             '- 不要堆砌板块、配套、通勤、梯户比、得房率等行业词；必须用时也要解释成客户利益。',
             '- 如果信息缺失，不要编造具体学校、地铁距离、价格涨幅、收益率。',
