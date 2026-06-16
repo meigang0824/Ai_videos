@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import api_clients
+from pipeline.service_config_store import ServiceConfigStore
 
 
 class DummyResponse:
@@ -81,3 +82,27 @@ def test_tts_clone_omits_prompt_text(tmp_path, monkeypatch):
     assert calls[0]["data"] == {"text": "克隆文本", "speed": "0.9"}
     assert "prompt_text" not in calls[0]["data"]
     assert "prompt_audio" in calls[0]["files"]
+
+
+def test_service_config_migrates_file_and_preserves_masked_key(tmp_path, monkeypatch):
+    config_path = tmp_path / "service_config.json"
+    config_path.write_text(
+        '{"llm":{"enabled":true,"url":"http://old.local","apiKey":"secret-key"}}',
+        encoding="utf-8",
+    )
+    store = ServiceConfigStore(tmp_path / "service_config.sqlite3")
+    monkeypatch.setattr(api_clients, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(api_clients, "service_config_store", store)
+
+    loaded = api_clients.load_service_config(mask_secret=False)
+
+    assert loaded["llm"]["url"] == "http://old.local"
+    assert loaded["llm"]["apiKey"] == "secret-key"
+    assert store.load()["llm"]["apiKey"] == "secret-key"
+
+    saved = api_clients.save_service_config({"llm": {"enabled": True, "url": "http://new.local", "apiKey": "********"}})
+
+    assert saved["llm"]["apiKey"] == "********"
+    persisted = store.load()
+    assert persisted["llm"]["url"] == "http://new.local"
+    assert persisted["llm"]["apiKey"] == "secret-key"

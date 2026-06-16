@@ -69,6 +69,14 @@ voices_table = Table(
     Column("created_at", String(64), nullable=False),
 )
 
+service_configs_table = Table(
+    "service_configs",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("config_json", Text, nullable=False),
+    Column("updated_at", String(64), nullable=False),
+)
+
 
 def _sqlite_url(path: Path) -> str:
     return f"sqlite:///{path}"

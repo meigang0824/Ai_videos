@@ -74,7 +74,7 @@ ALIYUN_OSS_SIGNED_URL_TTL=3600
 
 第一次在页面右上角登录入口注册的用户会自动成为管理员。已有用户后，任务、上传、历史记录和文件访问会按登录用户隔离；保存接口配置和清理存储等敏感操作需要管理员权限。设置 `AUTH_REQUIRED=1` 后，即使还没有注册用户，也会要求按登录态接入。
 
-Docker Compose 部署默认使用 PostgreSQL 保存用户、任务、上传记录和音色记录，并通过 Alembic 在容器启动时自动执行数据库迁移。本地脚本启动且未设置 `DATABASE_URL` 时，会回落到 `backend/storage/*.sqlite3`，首次启动会把旧的 `backend/storage/task_store.json` 历史迁移进去，旧记录归属为 `local`。
+Docker Compose 部署默认使用 PostgreSQL 保存用户、任务、上传记录、音色记录和接口配置，并通过 Alembic 在容器启动时自动执行数据库迁移。本地脚本启动且未设置 `DATABASE_URL` 时，会回落到 `backend/storage/*.sqlite3`，首次启动会把旧的 `backend/storage/task_store.json` 历史迁移进去，旧记录归属为 `local`。
 
 导入音色会写入当前登录用户归属，并保存到 `voices` 数据表；普通用户只能看到和试听自己的本地音色。旧的 `voices/*.json` 元数据会在服务启动时自动迁移进数据库，并继续保留为兼容备份。
 
@@ -118,7 +118,7 @@ npm --prefix app_ui run build
 - `语音合成 TTS`：可返回二进制音频、JSON 音频地址或 JSON base64。
 - `口型同步`：后端会把人物视频和音频用 multipart 上传给该接口。
 
-API Key 保存在本机 `backend/storage/service_config.json`，前端读取时会显示为掩码。再次保存时留空或保持掩码，后端会沿用旧 Key。
+接口配置和 API Key 保存在数据库的 `service_configs` 表，旧的 `backend/storage/service_config.json` 会在服务启动或首次读取时自动迁入数据库，并继续作为兼容备份写入。前端读取时会显示为掩码；再次保存时留空或保持掩码，后端会沿用旧 Key。
 
 ## 迁移到新电脑
 

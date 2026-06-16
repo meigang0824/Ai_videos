@@ -14,6 +14,7 @@ from urllib.parse import urljoin
 import requests
 
 from pipeline.config import STORAGE_DIR
+from pipeline.service_config_store import service_config_store
 
 
 CONFIG_PATH = STORAGE_DIR / "service_config.json"
@@ -109,10 +110,9 @@ def _merge_defaults(data: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def load_service_config(mask_secret: bool = False) -> dict[str, Any]:
-    try:
-        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
+    data = service_config_store.load()
+    if data is None:
+        data = service_config_store.migrate_from_file(CONFIG_PATH) or {}
     merged = _merge_defaults(data)
     if mask_secret:
         masked = deepcopy(merged)
@@ -130,6 +130,7 @@ def save_service_config(payload: dict[str, Any]) -> dict[str, Any]:
         key = str(values.get("apiKey") or "")
         if not key or "*" in key:
             values["apiKey"] = current.get(section, {}).get("apiKey", "")
+    service_config_store.save(next_config)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(next_config, ensure_ascii=False, indent=2), encoding="utf-8")
     return load_service_config(mask_secret=True)

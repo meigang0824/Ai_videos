@@ -55,8 +55,8 @@ rm .env
 
 Compose 使用以下 volume：
 
-- `cosy_postgres`：PostgreSQL 数据库，保存用户、任务、上传记录和音色记录。
-- `cosy_storage`：服务配置和兼容本地 SQLite 回落文件。
+- `cosy_postgres`：PostgreSQL 数据库，保存用户、任务、上传记录、音色记录和接口配置。
+- `cosy_storage`：服务配置兼容备份和兼容本地 SQLite 回落文件。
 - `cosy_outputs`：音频、视频、字幕输出。
 - `cosy_voices`：本地音色录音和兼容 JSON 元数据；音色名称、归属、OSS key 等结构化信息会写入数据库。
 - `cosy_redis`：Celery broker / result backend 数据。
@@ -137,8 +137,8 @@ chmod +x scripts/backup_storage.sh
 代码和运行数据分开迁移：
 
 - 代码：复制项目目录，但不要把 `.env`、真实 `backend/storage/service_config.json`、SQLite 文件和密钥文件提交到代码仓库。
-- 运行配置：`backend/storage/service_config.json` 保存接口配置和 API Key，迁移服务器时需要单独安全复制或通过后台重新填写。
-- Docker 数据：当前 Docker Compose 使用 named volumes，PostgreSQL 数据在 `cosy_postgres`，服务配置在 `cosy_storage`，音色音频在 `cosy_voices`。只复制代码不会带走这些 volume。
+- 运行配置：接口配置和 API Key 以数据库 `service_configs` 表为准；旧 `backend/storage/service_config.json` 会自动迁入数据库，并继续作为兼容备份。
+- Docker 数据：当前 Docker Compose 使用 named volumes，PostgreSQL 数据在 `cosy_postgres`，服务配置兼容备份在 `cosy_storage`，音色音频在 `cosy_voices`。只复制代码不会带走这些 volume。
 - 配置样例：`backend/storage/service_config.example.json` 只放无密钥示例，可用于新环境参考。
 
 迁移到新服务器时，推荐流程：
@@ -151,7 +151,7 @@ chmod +x scripts/backup_storage.sh
 tar -xzf backups/cosyvoice_backup_YYYYmmdd_HHMMSS.tar.gz -C /opt/cosyvoice
 ```
 
-如果是 Docker named volume 生产部署，还需要额外备份/恢复 PostgreSQL。音色名称和归属在 `voices` 表，音色音频文件仍需从 `cosy_voices` 或 OSS 恢复：
+如果是 Docker named volume 生产部署，还需要额外备份/恢复 PostgreSQL。接口配置在 `service_configs` 表，音色名称和归属在 `voices` 表，音色音频文件仍需从 `cosy_voices` 或 OSS 恢复：
 
 ```bash
 docker-compose exec -T postgres pg_dump -U cosyvoice -d cosyvoice > cosyvoice.sql
