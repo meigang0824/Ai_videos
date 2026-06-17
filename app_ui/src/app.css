@@ -797,18 +797,30 @@ select,
 
 .app-voice-grid {
   display: grid;
-  grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
 .voice-controls {
   min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.voice-controls label {
+  margin: 0;
+}
+
+.voice-controls label span {
+  display: block;
+  margin-bottom: 6px;
 }
 
 .voice-note {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 9px;
 }
 
 .audio-card {
@@ -829,13 +841,22 @@ select,
   font-weight: 700;
 }
 
-.voice-note strong {
+.voice-current-name {
+  display: block;
   font-size: 16px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .voice-manage-form {
   display: grid;
-  gap: 7px;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
 }
 
 .voice-manage-form label {
@@ -844,6 +865,7 @@ select,
 
 .voice-manage-form input {
   height: 36px;
+  background: rgba(0, 0, 0, .12);
 }
 
 .voice-manage-actions {
@@ -875,6 +897,7 @@ select,
 
 .voice-manage-actions button.danger {
   color: #ff9aac;
+  border-color: rgba(255, 107, 124, .3);
 }
 
 .voice-manage-actions button:hover:not(:disabled),
@@ -2281,6 +2304,7 @@ select:focus-visible {
 .history-item button,
 .download-link,
 .background-card-actions button,
+.voice-manage-actions button,
 .voice-preview-actions button {
   border-color: var(--line);
   border-radius: 8px;

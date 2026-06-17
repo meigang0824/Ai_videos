@@ -2108,18 +2108,22 @@ function App() {
         <Section num="3" title="音色设置" sub="接口语音合成" className="voice-section" id="voice">
           <div className="voice-grid app-voice-grid">
             <div className="voice-controls">
-              <label>音色</label>
-              <select value={voiceId} onChange={e => setVoiceId(e.target.value)}>
-                {voices.length ? voices.map(v => <option key={v.id} value={v.id}>{v.name}</option>) : <option value="default">默认音色</option>}
-              </select>
-              <label>语速</label>
-              <select value={ttsSpeed} onChange={e => setTtsSpeed(Number(e.target.value))}>
-                {TTS_SPEED_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
+              <label>
+                <span>音色</span>
+                <select value={voiceId} onChange={e => setVoiceId(e.target.value)}>
+                  {voices.length ? voices.map(v => <option key={v.id} value={v.id}>{v.name}</option>) : <option value="default">默认音色</option>}
+                </select>
+              </label>
+              <label>
+                <span>语速</span>
+                <select value={ttsSpeed} onChange={e => setTtsSpeed(Number(e.target.value))}>
+                  {TTS_SPEED_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
             </div>
             <div className="audio-card voice-note">
               <p><UserRound size={16}/>当前音色</p>
-              <strong>{selectedVoice?.name || '默认音色'}</strong>
+              <strong className="voice-current-name">{selectedVoice?.name || '默认音色'}</strong>
               <div className="voice-manage-form">
                 <label>
                   <span>音色名称</span>
@@ -2138,16 +2142,18 @@ function App() {
                     type="button"
                     onClick={handleVoiceRename}
                     disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                    title="保存音色名称"
                   >
-                    {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}保存名称
+                    {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}保存
                   </button>
                   <button
                     type="button"
                     className="danger"
                     onClick={handleVoiceDelete}
                     disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                    title="删除当前音色"
                   >
-                    <Trash2 size={15}/>删除音色
+                    <Trash2 size={15}/>删除
                   </button>
                 </div>
               </div>
