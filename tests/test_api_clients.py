@@ -60,6 +60,7 @@ def test_tts_clone_omits_prompt_text(tmp_path, monkeypatch):
                 "enabled": True,
                 "url": "http://model.local/v1/tts/synthesize",
                 "cloneUrl": "http://model.local/v1/tts/clone",
+                "apiKey": "tts-secret",
                 "textField": "text",
                 "speedField": "speed",
                 "outputMode": "binary",
@@ -79,6 +80,7 @@ def test_tts_clone_omits_prompt_text(tmp_path, monkeypatch):
 
     assert output_path.read_bytes() == b"RIFFfake-wav"
     assert calls[0]["url"] == "http://model.local/v1/tts/clone"
+    assert calls[0]["headers"]["Authorization"] == "Bearer tts-secret"
     assert calls[0]["data"] == {"text": "克隆文本", "speed": "0.9"}
     assert "prompt_text" not in calls[0]["data"]
     assert "prompt_audio" in calls[0]["files"]

@@ -128,6 +128,10 @@ def _asr_headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, s
     return _headers(config, json_mode=json_mode, default_prefix="Bearer ")
 
 
+def _tts_headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, str]:
+    return _headers(config, json_mode=json_mode, default_prefix="Bearer ")
+
+
 def _raise_for_status(response: requests.Response):
     try:
         response.raise_for_status()
@@ -429,7 +433,7 @@ def call_tts(
                     "application/octet-stream",
                 )
             }
-            response = requests.post(clone_url, headers=_headers(config), data=data, files=files, timeout=timeout)
+            response = requests.post(clone_url, headers=_tts_headers(config), data=data, files=files, timeout=timeout)
     elif config.get("useMultipart"):
         logger.info("Calling TTS multipart endpoint: %s", config["url"])
         data = {
@@ -452,7 +456,7 @@ def call_tts(
                     file_handle,
                     "application/octet-stream",
                 )
-            response = requests.post(config["url"], headers=_headers(config), data=data, files=files, timeout=timeout)
+            response = requests.post(config["url"], headers=_tts_headers(config), data=data, files=files, timeout=timeout)
         finally:
             if file_handle:
                 file_handle.close()
@@ -470,7 +474,7 @@ def call_tts(
             payload["voice_ref_text"] = voice_ref_text
         if voice_ref_wav:
             payload["voice_ref_wav"] = str(voice_ref_wav)
-        response = requests.post(config["url"], headers=_headers(config, json_mode=True), json=payload, timeout=timeout)
+        response = requests.post(config["url"], headers=_tts_headers(config, json_mode=True), json=payload, timeout=timeout)
 
     _raise_for_status(response)
     output_path.parent.mkdir(parents=True, exist_ok=True)
