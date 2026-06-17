@@ -50,6 +50,30 @@ def test_login_and_me_use_bearer_token(tmp_path, monkeypatch):
     assert no_token.status_code == 401
 
 
+def test_api_routes_require_login_when_auth_is_active(tmp_path, monkeypatch):
+    auth_store = AuthStore(tmp_path / "auth.sqlite3")
+    monkeypatch.setattr(api_server, "auth_store", auth_store)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+
+    client = TestClient(api_server.app)
+    auth_store.create_user("locked_user", "TestPass12345", role="user")
+
+    login = client.post("/api/v1/auth/login", json={"username": "locked_user", "password": "TestPass12345"})
+    assert login.status_code == 200
+
+    protected_requests = [
+        ("GET", "/api/v1/app-config", None),
+        ("GET", "/api/v1/health", None),
+        ("GET", "/api/v1/rewrite-options", None),
+        ("GET", "/api/v1/storage", None),
+        ("POST", "/api/v1/rewrite/start", {"reference_text": "测试"}),
+    ]
+    for method, path, payload in protected_requests:
+        response = client.request(method, path, json=payload)
+        assert response.status_code == 401
+        assert response.json()["detail"] == "请先登录"
+
+
 def test_service_config_requires_admin(tmp_path, monkeypatch):
     auth_store = AuthStore(tmp_path / "auth.sqlite3")
     monkeypatch.setattr(api_server, "auth_store", auth_store)

@@ -56,6 +56,11 @@ class LocalJobRunner:
                 self.futures.pop(task_id, None)
             return canceled
 
+    def has_task(self, task_id: str) -> bool:
+        with self.lock:
+            future = self.futures.get(task_id)
+            return bool(future and not future.done())
+
     def _run(self, task_id: str, fn: Callable[[], None]):
         with self.lock:
             self.running += 1
@@ -102,6 +107,45 @@ class CeleryJobRunner:
         self.app.control.revoke(task_id, terminate=False)
         return True
 
+    def _queue_length(self) -> int:
+        try:
+            import redis
+
+            client = redis.Redis.from_url(self.broker_url)
+            return int(client.llen("celery") or 0)
+        except Exception:
+            return 0
+
+    def _queued_contains(self, task_id: str) -> bool:
+        import redis
+
+        needle = task_id.encode("utf-8")
+        client = redis.Redis.from_url(self.broker_url)
+        for item in client.lrange("celery", 0, -1):
+            if needle in item:
+                return True
+        return False
+
+    def _inspect_task_ids(self) -> set[str]:
+        task_ids: set[str] = set()
+        inspect = self.app.control.inspect(timeout=1)
+        groups = [
+            inspect.active() or {},
+            inspect.reserved() or {},
+            inspect.scheduled() or {},
+        ]
+        for group in groups:
+            for items in group.values():
+                for item in items:
+                    request = item.get("request") if isinstance(item, dict) else None
+                    task_id = (request or item).get("id") if isinstance(request or item, dict) else None
+                    if task_id:
+                        task_ids.add(str(task_id))
+        return task_ids
+
+    def has_task(self, task_id: str) -> bool:
+        return task_id in self._inspect_task_ids() or self._queued_contains(task_id)
+
     def status(self) -> dict[str, int | str | bool]:
         payload: dict[str, int | str | bool] = {
             "backend": "celery",
@@ -111,6 +155,7 @@ class CeleryJobRunner:
             "active": 0,
             "reserved": 0,
             "scheduled": 0,
+            "queue_length": self._queue_length(),
         }
         try:
             inspect = self.app.control.inspect(timeout=1)

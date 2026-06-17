@@ -89,6 +89,42 @@ def test_run_task_marks_failed_when_kind_is_unknown(tmp_path, monkeypatch):
     assert "不支持执行" in item["error"]
 
 
+def test_finish_clears_stale_error(tmp_path, monkeypatch):
+    task_store = TaskStore(tmp_path / "task_store.sqlite3")
+    monkeypatch.setattr(api_server, "task_store", task_store)
+
+    task_id = "finish_clears_error_test"
+    task_store.create_task(task_id, "rewrite", "rewrite", {}, user_id="local")
+    task_store.update_task(task_id, status="failed", progress=100, message="失败", error="old error")
+
+    api_server._finish(task_id, {"task_id": task_id, "ok": True})
+
+    item = task_store.get_task(task_id, include_payload=True, user_id="local")
+    assert item["status"] == "success"
+    assert item["error"] is None
+
+
+def test_orphaned_queued_task_is_marked_failed(tmp_path, monkeypatch):
+    task_store = TaskStore(tmp_path / "task_store.sqlite3")
+    monkeypatch.setattr(api_server, "task_store", task_store)
+    monkeypatch.setattr(api_server, "_seconds_since", lambda value: 999)
+
+    class EmptyRunner:
+        def has_task(self, task_id):
+            return False
+
+    monkeypatch.setattr(api_server, "job_runner", EmptyRunner())
+
+    task_id = "orphaned_queued_task"
+    task_store.create_task(task_id, "tts", "tts", {}, user_id="local")
+    item = task_store.get_task(task_id, user_id="local")
+
+    updated = api_server._fail_if_orphaned_task(item)
+
+    assert updated["status"] == "failed"
+    assert "任务队列已重启" in updated["error"]
+
+
 def test_extract_reference_text_bypasses_asr_and_fallbacks(tmp_path, monkeypatch):
     task_store = TaskStore(tmp_path / "task_store.sqlite3")
     monkeypatch.setattr(api_server, "task_store", task_store)

@@ -31,6 +31,7 @@ import './app.css';
 const API_BASE = '';
 const AUTH_TOKEN_KEY = 'cosyvoice_auth_token';
 const TRANSIENT_HTTP_STATUS = new Set([502, 503, 504]);
+const DEFAULT_JOB_TIMEOUT_MS = 8 * 60 * 1000;
 
 const defaultPrompt = {
   url: ''
@@ -774,13 +775,18 @@ function AdminPage({
   </div>;
 }
 
-async function runBackgroundJob(path, payload, onProgress) {
+async function runBackgroundJob(path, payload, onProgress, options = {}) {
   const started = performance.now();
+  const timeoutMs = Number(options.timeoutMs) || DEFAULT_JOB_TIMEOUT_MS;
   const { data: queued } = await postJSON(path, payload);
   let task = null;
   let transientErrors = 0;
   let polls = 0;
   while (true) {
+    const elapsed = performance.now() - started;
+    if (elapsed > timeoutMs) {
+      throw new Error('任务等待超时，请刷新任务记录后重试');
+    }
     try {
       task = await getJSON(`/api/v1/jobs/${queued.task_id}`);
       transientErrors = 0;
@@ -804,7 +810,6 @@ async function runBackgroundJob(path, payload, onProgress) {
     }
     onProgress?.(task);
     polls += 1;
-    const elapsed = performance.now() - started;
     const delay = elapsed < 15000 ? 1500 : Math.min(5000, 2200 + polls * 250);
     await sleep(delay);
   }
@@ -1257,7 +1262,8 @@ function App() {
       const { data, elapsedMs } = await runBackgroundJob(
         '/api/v1/extract/start',
         payload,
-        task => setExtract({ state: 'loading', message: progressMessage('正在提取文案', task) })
+        task => setExtract({ state: 'loading', message: progressMessage('正在提取文案', task) }),
+        { timeoutMs: 5 * 60 * 1000 }
       );
       setExtractedScript(data.extracted_script || '');
       setSegments(data.segments || []);
@@ -1303,7 +1309,8 @@ function App() {
           rewrite_strength: rewriteStrength,
           rewrite_variants: rewriteVariants
         },
-        task => setRewrite({ state: 'loading', message: progressMessage('正在改写文案', task) })
+        task => setRewrite({ state: 'loading', message: progressMessage('正在改写文案', task) }),
+        { timeoutMs: 4 * 60 * 1000 }
       );
       const text = normalizeScriptText(data.final_script || '');
       if (!text) {
@@ -1352,7 +1359,8 @@ function App() {
           rewrite_strength: 'heavy',
           rewrite_variants: 1
         },
-        task => setRealtorCopy({ state: 'loading', message: progressMessage('正在生成房产文案', task) })
+        task => setRealtorCopy({ state: 'loading', message: progressMessage('正在生成房产文案', task) }),
+        { timeoutMs: 4 * 60 * 1000 }
       );
       const text = normalizeScriptText(data.final_script || '');
       if (!text) {
@@ -1397,7 +1405,8 @@ function App() {
       const { data, elapsedMs } = await runBackgroundJob(
         '/api/v1/tts/start',
         payload,
-        task => setTts({ state: 'loading', message: progressMessage('正在生成配音', task) })
+        task => setTts({ state: 'loading', message: progressMessage('正在生成配音', task) }),
+        { timeoutMs: 6 * 60 * 1000 }
       );
       const audioUrl = withAuthQuery(`${data.audio_url}?t=${Date.now()}`);
       const duration = await readAudioDuration(audioUrl);
@@ -1461,7 +1470,8 @@ function App() {
       const { data, elapsedMs } = await runBackgroundJob(
         '/api/v1/tts/sample/start',
         payload,
-        task => setVoicePreview({ state: 'loading', message: progressMessage('正在生成试听样音', task) })
+        task => setVoicePreview({ state: 'loading', message: progressMessage('正在生成试听样音', task) }),
+        { timeoutMs: 6 * 60 * 1000 }
       );
       setVoicePreviewAudio({
         title: '样音试听',
@@ -1761,7 +1771,8 @@ function App() {
             ffmpegPreset: selectedRenderPreset.ffmpegPreset
           }
         },
-        task => setVideoEdit({ state: 'loading', message: progressMessage('正在剪辑合成视频', task) })
+        task => setVideoEdit({ state: 'loading', message: progressMessage('正在剪辑合成视频', task) }),
+        { timeoutMs: 20 * 60 * 1000 }
       );
       const videoUrl = withAuthQuery(`${data.outputVideoUrl || data.video_url}?t=${Date.now()}`);
       setRenderedVideo({
@@ -1807,7 +1818,8 @@ function App() {
           noSmooth: wav2lipNoSmooth,
           enhanceMode: wav2lipEnhanceMode
         },
-        task => setWav2lip({ state: 'loading', message: progressMessage('正在调用口型同步接口', task) })
+        task => setWav2lip({ state: 'loading', message: progressMessage('正在调用口型同步接口', task) }),
+        { timeoutMs: 20 * 60 * 1000 }
       );
       const video = withAuthQuery(`${data.video_url}?t=${Date.now()}`);
       setWav2lipVideo({ ...data, video_url: video });

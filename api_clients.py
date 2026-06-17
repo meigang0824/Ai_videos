@@ -132,6 +132,14 @@ def _tts_headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, s
     return _headers(config, json_mode=json_mode, default_prefix="Bearer ")
 
 
+def _lip_sync_headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, str]:
+    return _headers(config, json_mode=json_mode, default_prefix="Bearer ")
+
+
+def _video_compose_headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, str]:
+    return _headers(config, json_mode=json_mode, default_prefix="Bearer ")
+
+
 def _raise_for_status(response: requests.Response):
     try:
         response.raise_for_status()
@@ -508,7 +516,7 @@ def call_lip_sync(video_path: Path, audio_path: Path, output_path: Path, options
             str(config.get("videoField") or "video"): (video_path.name, vf, "application/octet-stream"),
             str(config.get("audioField") or "audio"): (audio_path.name, af, "application/octet-stream"),
         }
-        response = requests.post(config["url"], headers=_headers(config), data=data, files=files, timeout=timeout)
+        response = requests.post(config["url"], headers=_lip_sync_headers(config), data=data, files=files, timeout=timeout)
     _raise_for_status(response)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_mode == "binary":
@@ -541,7 +549,7 @@ def call_video_compose(payload: dict[str, Any], output_path: Path) -> dict[str, 
     logger.info("Calling video compose endpoint: %s", config["url"])
     response = requests.post(
         config["url"],
-        headers=_headers(config, json_mode=True),
+        headers=_video_compose_headers(config, json_mode=True),
         json=request_payload,
         timeout=timeout,
     )

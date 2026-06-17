@@ -282,3 +282,91 @@ def test_asr_uses_api_key_as_bearer_token_for_url_and_file_calls(tmp_path, monke
     assert calls[0]["headers"]["Content-Type"] == "application/json"
     assert calls[1]["headers"]["Authorization"] == "Bearer asr-secret"
     assert calls[2]["headers"]["Authorization"] == "Bearer asr-secret"
+
+
+def test_video_compose_uses_api_key_as_bearer_token(tmp_path, monkeypatch):
+    calls = []
+
+    class ComposeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"video_url": "http://video.local/output.mp4"}
+
+    monkeypatch.setattr(
+        api_clients,
+        "load_service_config",
+        lambda mask_secret=False: {
+            "videoCompose": {
+                "enabled": True,
+                "url": "http://video.local/v1/video/compose",
+                "apiKey": "compose-secret",
+                "timeout": 900,
+            }
+        },
+    )
+
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout, "kwargs": kwargs})
+        return ComposeResponse()
+
+    def fake_download(url, output_path, timeout, base_url=None):
+        output_path.write_bytes(b"video")
+
+    monkeypatch.setattr(api_clients.requests, "post", fake_post)
+    monkeypatch.setattr(api_clients, "_download_file", fake_download)
+
+    output_path = tmp_path / "video.mp4"
+    result = api_clients.call_video_compose(
+        {"video_urls": ["https://oss.local/video.mp4"], "audio_url": "https://oss.local/audio.wav"},
+        output_path,
+    )
+
+    assert output_path.read_bytes() == b"video"
+    assert result["video_path"] == str(output_path)
+    assert calls[0]["headers"]["Authorization"] == "Bearer compose-secret"
+    assert calls[0]["headers"]["Content-Type"] == "application/json"
+
+
+def test_lip_sync_uses_api_key_as_bearer_token(tmp_path, monkeypatch):
+    calls = []
+
+    class LipSyncResponse:
+        content = b"video"
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(
+        api_clients,
+        "load_service_config",
+        lambda mask_secret=False: {
+            "lipSync": {
+                "enabled": True,
+                "url": "http://video.local/v1/avatar/latentsync",
+                "apiKey": "lip-secret",
+                "timeout": 900,
+            }
+        },
+    )
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None, **kwargs):
+        calls.append({"url": url, "headers": headers, "data": data, "files": files, "timeout": timeout, "kwargs": kwargs})
+        return LipSyncResponse()
+
+    monkeypatch.setattr(api_clients.requests, "post", fake_post)
+
+    video_path = tmp_path / "source.mp4"
+    audio_path = tmp_path / "audio.wav"
+    output_path = tmp_path / "lip.mp4"
+    video_path.write_bytes(b"video")
+    audio_path.write_bytes(b"audio")
+
+    api_clients.call_lip_sync(video_path, audio_path, output_path, {"pads": [0, 10, 0, 0]})
+
+    assert output_path.read_bytes() == b"video"
+    assert calls[0]["headers"]["Authorization"] == "Bearer lip-secret"
+    assert "Content-Type" not in calls[0]["headers"]
+    assert "video" in calls[0]["files"]
+    assert "audio" in calls[0]["files"]

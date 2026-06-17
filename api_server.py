@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import requests
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -411,6 +411,25 @@ def _require_admin(request: Request) -> dict[str, Any]:
     return user
 
 
+PUBLIC_API_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+}
+
+
+@app.middleware("http")
+async def require_api_login(request: Request, call_next):
+    if (
+        request.url.path.startswith("/api/v1/")
+        and request.method.upper() != "OPTIONS"
+        and request.url.path not in PUBLIC_API_PATHS
+        and _auth_is_active()
+        and not _current_user(request)
+    ):
+        return JSONResponse(status_code=401, content={"detail": "请先登录"})
+    return await call_next(request)
+
+
 def _quota_limit(name: str) -> int | None:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -498,6 +517,7 @@ def _finish(task_id: str, result: dict[str, Any]):
         progress=100,
         message="完成",
         result=result,
+        error=None,
         finished_at=_now(),
     )
 
@@ -511,6 +531,50 @@ def _fail(task_id: str, exc: Exception):
         error=str(exc),
         finished_at=_now(),
     )
+
+
+def _seconds_since(value: str | None) -> float:
+    if not value:
+        return 0
+    try:
+        text = value.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds())
+    except ValueError:
+        return 0
+
+
+def _fail_if_orphaned_task(task: dict[str, Any]) -> dict[str, Any]:
+    status = task.get("status")
+    if status not in {"queued", "running"}:
+        return task
+    if not hasattr(job_runner, "has_task"):
+        return task
+
+    age = _seconds_since(task.get("updated_at") or task.get("created_at"))
+    stale_after = 45 if status == "queued" else 180
+    if age < stale_after:
+        return task
+
+    try:
+        still_known = bool(job_runner.has_task(str(task.get("task_id") or "")))
+    except Exception:
+        return task
+    if still_known:
+        return task
+
+    reason = "任务队列已重启，当前任务未在执行队列中，请重新发起"
+    updated = task_store.update_task(
+        str(task["task_id"]),
+        status="failed",
+        progress=100,
+        message="失败",
+        error=reason,
+        finished_at=_now(),
+    )
+    return updated or {**task, "status": "failed", "progress": 100, "message": "失败", "error": reason}
 
 
 def _task_audio_available(task: dict[str, Any]) -> bool:
@@ -1646,7 +1710,7 @@ def job(task_id: str, request: Request):
     item = task_store.get_task(task_id, user_id=_request_user_id(request))
     if not item:
         raise HTTPException(status_code=404, detail="任务不存在")
-    return item
+    return _fail_if_orphaned_task(item)
 
 
 @app.post("/api/v1/tasks/{task_id}/cancel")
