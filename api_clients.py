@@ -124,6 +124,10 @@ def _headers(config: dict[str, Any], json_mode: bool = False, default_prefix: st
     return headers
 
 
+def _asr_headers(config: dict[str, Any], json_mode: bool = False) -> dict[str, str]:
+    return _headers(config, json_mode=json_mode, default_prefix="Bearer ")
+
+
 def _raise_for_status(response: requests.Response):
     try:
         response.raise_for_status()
@@ -342,7 +346,13 @@ def call_asr(audio_path: Path, model: str | None = None, language: str | None = 
     }
     with open(audio_path, "rb") as f:
         files = {file_field: (audio_path.name, f, "application/octet-stream")}
-        response = requests.post(_asr_endpoint(config, "audio"), headers=_headers(config), data=data, files=files, timeout=timeout)
+        response = requests.post(
+            _asr_endpoint(config, "audio"),
+            headers=_asr_headers(config),
+            data=data,
+            files=files,
+            timeout=timeout,
+        )
     _raise_for_status(response)
     result = response.json()
     return _parse_asr_result(result, config)
@@ -358,7 +368,7 @@ def call_asr_url(reference_url: str, model: str | None = None, language: str | N
         payload["language"] = language or config.get("language")
     response = requests.post(
         _asr_endpoint(config, "url"),
-        headers=_headers(config, json_mode=True),
+        headers=_asr_headers(config, json_mode=True),
         json=payload,
         timeout=timeout,
     )
@@ -379,7 +389,13 @@ def call_asr_media(media_path: Path, *, is_video: bool = False, model: str | Non
     content_type = mimetypes.guess_type(media_path.name)[0] or "application/octet-stream"
     with open(media_path, "rb") as f:
         files = {file_field: (media_path.name, f, content_type)}
-        response = requests.post(_asr_endpoint(config, "video"), headers=_headers(config), data=data, files=files, timeout=timeout)
+        response = requests.post(
+            _asr_endpoint(config, "video"),
+            headers=_asr_headers(config),
+            data=data,
+            files=files,
+            timeout=timeout,
+        )
     _raise_for_status(response)
     return _parse_asr_result(response.json(), config)
 

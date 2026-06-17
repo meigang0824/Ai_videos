@@ -222,3 +222,61 @@ def test_asr_uses_separate_link_and_video_endpoints(monkeypatch):
     assert api_clients._asr_endpoint(config, "url") == "http://model.local/v1/audio/transcribe-url"
     assert api_clients._asr_endpoint(config, "video") == "http://model.local/v1/video/transcribe"
     assert api_clients._asr_endpoint(config, "audio") == "http://model.local/v1/audio/transcribe"
+
+
+def test_asr_uses_api_key_as_bearer_token_for_url_and_file_calls(tmp_path, monkeypatch):
+    calls = []
+
+    class AsrResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"text": "转写结果", "segments": []}
+
+    monkeypatch.setattr(
+        api_clients,
+        "load_service_config",
+        lambda mask_secret=False: {
+            "asr": {
+                "enabled": True,
+                "url": "http://model.local/v1/audio/transcribe-url",
+                "videoUrl": "http://model.local/v1/video/transcribe",
+                "apiKey": "asr-secret",
+                "model": "base",
+            }
+        },
+    )
+
+    def fake_post(url, headers=None, json=None, data=None, files=None, timeout=None, **kwargs):
+        calls.append(
+            {
+                "url": url,
+                "headers": headers,
+                "json": json,
+                "data": data,
+                "files": files,
+                "timeout": timeout,
+                "kwargs": kwargs,
+            }
+        )
+        return AsrResponse()
+
+    monkeypatch.setattr(api_clients.requests, "post", fake_post)
+
+    audio_path = tmp_path / "demo.wav"
+    video_path = tmp_path / "demo.mp4"
+    audio_path.write_bytes(b"audio")
+    video_path.write_bytes(b"video")
+
+    url_result = api_clients.call_asr_url("https://example.test/video.mp4")
+    file_result = api_clients.call_asr_media(video_path, is_video=True)
+    audio_result = api_clients.call_asr(audio_path)
+
+    assert url_result["text"] == "转写结果"
+    assert file_result["text"] == "转写结果"
+    assert audio_result["text"] == "转写结果"
+    assert calls[0]["headers"]["Authorization"] == "Bearer asr-secret"
+    assert calls[0]["headers"]["Content-Type"] == "application/json"
+    assert calls[1]["headers"]["Authorization"] == "Bearer asr-secret"
+    assert calls[2]["headers"]["Authorization"] == "Bearer asr-secret"
