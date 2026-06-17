@@ -2123,7 +2123,6 @@ function App() {
             </div>
             <div className="audio-card voice-note">
               <p><UserRound size={16}/>当前音色</p>
-              <strong className="voice-current-name">{selectedVoice?.name || '默认音色'}</strong>
               <div className="voice-manage-form">
                 <div className="voice-name-row">
                   <span className="voice-name-label">名称</span>

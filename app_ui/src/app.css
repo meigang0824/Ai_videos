@@ -841,15 +841,6 @@ select,
   font-weight: 700;
 }
 
-.voice-current-name {
-  display: block;
-  font-size: 16px;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .voice-manage-form {
   padding: 8px;
   border: 1px solid var(--line);
