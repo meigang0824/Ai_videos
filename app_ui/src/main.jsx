@@ -2125,36 +2125,38 @@ function App() {
               <p><UserRound size={16}/>当前音色</p>
               <strong className="voice-current-name">{selectedVoice?.name || '默认音色'}</strong>
               <div className="voice-manage-form">
-                <label>
-                  <span>音色名称</span>
-                  <input
-                    value={voiceNameDraft}
-                    placeholder="给这个音色起个名字"
-                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
-                    onChange={event => {
-                      setVoiceNameDraft(event.target.value);
-                      setVoiceManage({ state: 'idle', message: '' });
-                    }}
-                  />
-                </label>
-                <div className="voice-manage-actions">
-                  <button
-                    type="button"
-                    onClick={handleVoiceRename}
-                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
-                    title="保存音色名称"
-                  >
-                    {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}保存
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={handleVoiceDelete}
-                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
-                    title="删除当前音色"
-                  >
-                    <Trash2 size={15}/>删除
-                  </button>
+                <div className="voice-name-row">
+                  <label>
+                    <span>音色名称</span>
+                    <input
+                      value={voiceNameDraft}
+                      placeholder="给这个音色起个名字"
+                      disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                      onChange={event => {
+                        setVoiceNameDraft(event.target.value);
+                        setVoiceManage({ state: 'idle', message: '' });
+                      }}
+                    />
+                  </label>
+                  <div className="voice-manage-actions">
+                    <button
+                      type="button"
+                      onClick={handleVoiceRename}
+                      disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                      title="保存音色名称"
+                    >
+                      {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}保存
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={handleVoiceDelete}
+                      disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                      title="删除当前音色"
+                    >
+                      <Trash2 size={15}/>删除
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="voice-preview-actions">

@@ -851,16 +851,22 @@ select,
 }
 
 .voice-manage-form {
-  display: grid;
-  gap: 8px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, .035);
 }
 
+.voice-name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
 .voice-manage-form label {
   margin: 0;
+  min-width: 0;
 }
 
 .voice-manage-form input {
@@ -869,9 +875,8 @@ select,
 }
 
 .voice-manage-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  display: flex;
+  gap: 6px;
 }
 
 .voice-preview-actions {
@@ -893,6 +898,10 @@ select,
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+
+.voice-manage-actions button {
+  min-width: 66px;
 }
 
 .voice-manage-actions button.danger {
@@ -2467,6 +2476,15 @@ label,
   .side-actions,
   .sidebar .stats {
     grid-template-columns: 1fr;
+  }
+
+  .voice-name-row {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-manage-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
