@@ -2126,35 +2126,36 @@ function App() {
               <strong className="voice-current-name">{selectedVoice?.name || '默认音色'}</strong>
               <div className="voice-manage-form">
                 <div className="voice-name-row">
-                  <label>
-                    <span>音色名称</span>
-                    <input
-                      value={voiceNameDraft}
-                      placeholder="给这个音色起个名字"
-                      disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
-                      onChange={event => {
-                        setVoiceNameDraft(event.target.value);
-                        setVoiceManage({ state: 'idle', message: '' });
-                      }}
-                    />
-                  </label>
+                  <span className="voice-name-label">名称</span>
+                  <input
+                    aria-label="音色名称"
+                    value={voiceNameDraft}
+                    placeholder="给这个音色起个名字"
+                    disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
+                    onChange={event => {
+                      setVoiceNameDraft(event.target.value);
+                      setVoiceManage({ state: 'idle', message: '' });
+                    }}
+                  />
                   <div className="voice-manage-actions">
                     <button
                       type="button"
+                      aria-label="保存音色名称"
                       onClick={handleVoiceRename}
                       disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
                       title="保存音色名称"
                     >
-                      {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}保存
+                      {voiceManage.state === 'loading' ? <Loader2 size={15}/> : <CheckCircle2 size={15}/>}
                     </button>
                     <button
                       type="button"
                       className="danger"
+                      aria-label="删除当前音色"
                       onClick={handleVoiceDelete}
                       disabled={!selectedVoice?.id || voiceManage.state === 'loading'}
                       title="删除当前音色"
                     >
-                      <Trash2 size={15}/>删除
+                      <Trash2 size={15}/>
                     </button>
                   </div>
                 </div>
