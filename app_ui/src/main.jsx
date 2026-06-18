@@ -760,12 +760,12 @@ function AdminPage({
               <tbody>
                 {users.length ? users.map(user => (
                   <tr key={user.id}>
-                    <td>{user.username}</td>
-                    <td>{ROLE_LABELS[user.role] || user.role}</td>
-                    <td>{user.status}</td>
-                    <td>{formatTime(user.created_at)}</td>
-                    <td>{formatTime(user.last_login_at)}</td>
-                    <td>
+                    <td data-label="用户名">{user.username}</td>
+                    <td data-label="角色">{ROLE_LABELS[user.role] || user.role}</td>
+                    <td data-label="状态">{user.status}</td>
+                    <td data-label="创建时间">{formatTime(user.created_at)}</td>
+                    <td data-label="最后登录">{formatTime(user.last_login_at)}</td>
+                    <td data-label="操作">
                       <button
                         className="ghost small danger"
                         onClick={() => onDeleteUser(user)}
