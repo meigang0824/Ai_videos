@@ -66,6 +66,24 @@ class ObjectStorage:
         bucket.put_object_from_file(key, str(local_path), headers=headers)
         return {"provider": "aliyun_oss", "key": key, "url": self.url_for(key)}
 
+    def upload_fileobj(self, fileobj: Any, key: str, content_type: str | None = None) -> dict[str, Any] | None:
+        if not self.enabled():
+            return None
+        bucket = self._get_bucket()
+        headers = {"Content-Type": content_type} if content_type else None
+        if hasattr(fileobj, "seek"):
+            fileobj.seek(0)
+        bucket.put_object(key, fileobj, headers=headers)
+        return {"provider": "aliyun_oss", "key": key, "url": self.url_for(key)}
+
+    def delete_object(self, key: str | None) -> bool:
+        key = (key or "").strip()
+        if not key or not self.enabled():
+            return False
+        bucket = self._get_bucket()
+        bucket.delete_object(key)
+        return True
+
     def url_for(self, key: str) -> str:
         if self.public_base_url:
             return f"{self.public_base_url}/{key.lstrip('/')}"

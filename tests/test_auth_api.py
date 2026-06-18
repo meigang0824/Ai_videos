@@ -265,3 +265,51 @@ def test_upload_voice_persists_voice_name_in_database(tmp_path, monkeypatch):
     listed_after_delete = client.get("/api/v1/voices", headers=headers)
     assert listed_after_delete.status_code == 200
     assert all(item["id"] != voice["id"] for item in listed_after_delete.json()["voices"])
+
+
+def test_upload_voice_uses_object_storage_without_persistent_local_file(tmp_path, monkeypatch):
+    auth_store = AuthStore(tmp_path / "auth.sqlite3")
+    voice_store = VoiceStore(tmp_path / "voices.sqlite3", migrate=False)
+    voice_dir = tmp_path / "voices"
+    voice_dir.mkdir()
+    uploaded = {}
+
+    def fake_upload_fileobj(fileobj, key, content_type=None):
+        uploaded["key"] = key
+        uploaded["content_type"] = content_type
+        fileobj.seek(0)
+        uploaded["content"] = fileobj.read()
+        return {"provider": "aliyun_oss", "key": key, "url": f"https://oss.example/{key}"}
+
+    monkeypatch.setattr(api_server, "auth_store", auth_store)
+    monkeypatch.setattr(api_server, "voice_store", voice_store)
+    monkeypatch.setattr(api_server, "VOICE_DIR", voice_dir)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+    monkeypatch.setattr(api_server.object_storage, "enabled", lambda: True)
+    monkeypatch.setattr(api_server.object_storage, "upload_fileobj", fake_upload_fileobj)
+
+    client = TestClient(api_server.app)
+    voice_user = auth_store.create_user("oss_voice_user", "TestPass12345", role="user")
+    registered = client.post(
+        "/api/v1/auth/login",
+        json={"username": voice_user["username"], "password": "TestPass12345"},
+    ).json()
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    response = client.post(
+        "/api/v1/upload-voice",
+        headers=headers,
+        files={"file": ("cloud.wav", b"RIFFcloud", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    voice = response.json()["voice"]
+    stored = voice_store.get_voice(voice["id"])
+    assert stored is not None
+    assert stored["ref_wav"].startswith("voices/")
+    assert stored["object_key"] == uploaded["key"]
+    assert stored["object_key"].endswith(".wav")
+    assert stored["object_url"].startswith("https://oss.example/")
+    assert uploaded["content"] == b"RIFFcloud"
+    assert uploaded["content_type"] == "audio/wav"
+    assert list(voice_dir.iterdir()) == []

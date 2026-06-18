@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -16,7 +17,7 @@ from urllib.parse import urlparse
 import requests
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -207,6 +208,14 @@ def _content_type(path: Path) -> str:
         return "audio/wav"
     if suffix == ".mp3":
         return "audio/mpeg"
+    if suffix in {".m4a", ".aac"}:
+        return "audio/mp4"
+    if suffix == ".flac":
+        return "audio/flac"
+    if suffix == ".ogg":
+        return "audio/ogg"
+    if suffix == ".webm":
+        return "audio/webm"
     if suffix == ".srt":
         return "text/plain"
     if suffix == ".json":
@@ -229,6 +238,34 @@ def _upload_to_object_storage(
         return object_storage.upload_file(local_path, key, content_type=_content_type(local_path))
     except Exception as exc:
         return {"provider": "aliyun_oss", "key": key, "error": str(exc)}
+
+
+async def _upload_voice_file_to_object_storage(file: UploadFile, user_id: str) -> tuple[str, int, dict[str, Any]]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED_AUDIO_SUFFIXES:
+        raise HTTPException(status_code=400, detail="文件格式不支持")
+    filename = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}{suffix}"
+    key = object_storage.key(user_id, "voices/audio", filename)
+    size = 0
+    spool = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
+    try:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="文件太大")
+            spool.write(chunk)
+        if size < 1:
+            raise HTTPException(status_code=400, detail="文件为空")
+        upload = object_storage.upload_fileobj(spool, key, content_type=_content_type(Path(filename)))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"音色上传 OSS 失败：{exc}") from exc
+    finally:
+        spool.close()
+    if not upload or upload.get("error"):
+        raise HTTPException(status_code=502, detail=upload.get("error") if upload else "音色上传 OSS 失败")
+    return filename, size, upload
 
 
 def _apply_object_result(target: dict[str, Any], field: str, upload: dict[str, Any] | None):
@@ -268,6 +305,34 @@ def _redirect_to_object(key: str | None):
         return RedirectResponse(object_storage.signed_url(key))
     except Exception:
         return None
+
+
+def _object_stream_response(key: str | None, fallback_name: str = "media.bin"):
+    if not key or not object_storage.enabled():
+        return None
+    response = None
+    try:
+        signed = object_storage.signed_url(key)
+        response = requests.get(signed, stream=True, timeout=60)
+        response.raise_for_status()
+    except Exception:
+        if response is not None:
+            response.close()
+        return None
+
+    def chunks():
+        try:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            response.close()
+
+    headers = {}
+    if response.headers.get("content-length"):
+        headers["Content-Length"] = response.headers["content-length"]
+    content_type = response.headers.get("content-type") or _content_type(Path(fallback_name))
+    return StreamingResponse(chunks(), media_type=content_type, headers=headers)
 
 
 def _relative_to_base(path: Path) -> str:
@@ -1619,9 +1684,15 @@ async def upload_video(request: Request, file: UploadFile = File(...)):
 @app.post("/api/v1/upload-voice")
 async def upload_voice(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     user_id = _request_user_id(request)
-    path, size = await _save_upload(file, VOICE_DIR, ALLOWED_AUDIO_SUFFIXES)
-    voice_id = path.stem
-    ref_wav = _relative_to_base(path)
+    if object_storage.enabled():
+        filename, size, upload = await _upload_voice_file_to_object_storage(file, user_id)
+        voice_id = Path(filename).stem
+        ref_wav = f"voices/{filename}"
+    else:
+        path, size = await _save_upload(file, VOICE_DIR, ALLOWED_AUDIO_SUFFIXES)
+        voice_id = path.stem
+        ref_wav = _relative_to_base(path)
+        upload = None
     voice = {
         "id": voice_id,
         "name": f"音色 {datetime.now().strftime('%m%d-%H%M')}",
@@ -1632,8 +1703,13 @@ async def upload_voice(request: Request, background_tasks: BackgroundTasks, file
         "size_bytes": size,
         "created_at": _now(),
     }
+    if upload:
+        voice["storage_provider"] = upload.get("provider") or "aliyun_oss"
+        voice["object_key"] = upload.get("key") or ""
+        if upload.get("url"):
+            voice["object_url"] = upload.get("url")
     voice_store.upsert_voice(voice)
-    if object_storage.enabled():
+    if object_storage.enabled() and not upload:
         background_tasks.add_task(_sync_voice_object_storage, voice_id, user_id, str(path))
     return {"voice": voice, "size_bytes": size}
 
@@ -1685,17 +1761,24 @@ def delete_voice(voice_id: str, request: Request):
     if not item:
         raise HTTPException(status_code=404, detail="音色不存在")
     deleted_file = _delete_local_voice_file(item)
+    try:
+        deleted_object = object_storage.delete_object(item.get("object_key"))
+    except Exception:
+        deleted_object = False
     deleted = voice_store.delete_voice(voice_id, user_id=_voice_owner_id(item))
-    return {"deleted": deleted, "deleted_file": deleted_file}
+    return {"deleted": deleted, "deleted_file": deleted_file, "deleted_object": deleted_object}
 
 
 @app.get("/api/v1/voices/{voice_id}/audio")
 def voice_audio(voice_id: str, request: Request):
     item = _find_user_voice(voice_id, _require_user(request))
     if item:
-        path = _voice_audio_local_path(item)
+        path = _resolve_voice_path(item.get("ref_wav"))
         if path and path.exists():
             return FileResponse(path)
+        stream = _object_stream_response(item.get("object_key"), Path(str(item.get("ref_wav") or "voice.wav")).name)
+        if stream:
+            return stream
         redirect = _redirect_to_object(item.get("object_key"))
         if redirect:
             return redirect
