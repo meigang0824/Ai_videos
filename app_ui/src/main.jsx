@@ -859,17 +859,17 @@ function App() {
   const [audio, setAudio] = useState(null);
   const [defaultBackgroundVideo, setDefaultBackgroundVideo] = useState(FALLBACK_BACKGROUND_VIDEO);
   const [editVideoUrl, setEditVideoUrl] = useState(FALLBACK_BACKGROUND_VIDEO);
-  const [editRatio, setEditRatio] = useState('vertical');
-  const [renderPreset, setRenderPreset] = useState('balanced');
-  const [editAddSubtitle, setEditAddSubtitle] = useState(true);
-  const [useApiSubtitleTiming, setUseApiSubtitleTiming] = useState(false);
-  const [clipSeconds, setClipSeconds] = useState(4);
-  const [subtitleMaxChars, setSubtitleMaxChars] = useState(12);
-  const [subtitlePosition, setSubtitlePosition] = useState('bottom');
-  const [subtitleStyle, setSubtitleStyle] = useState('classic');
-  const [subtitleSize, setSubtitleSize] = useState('normal');
-  const [subtitleTextColor, setSubtitleTextColor] = useState('#ffffff');
-  const [subtitleBackground, setSubtitleBackground] = useState(true);
+  const editRatio = 'vertical';
+  const renderPreset = 'balanced';
+  const editAddSubtitle = true;
+  const useApiSubtitleTiming = false;
+  const clipSeconds = 4;
+  const subtitleMaxChars = 12;
+  const subtitlePosition = 'bottom';
+  const subtitleStyle = 'classic';
+  const subtitleSize = 'normal';
+  const subtitleTextColor = '#ffffff';
+  const subtitleBackground = true;
   const [useAllVideos, setUseAllVideos] = useState(true);
   const [uploadedVideos, setUploadedVideos] = useState([]);
   const [renderedVideo, setRenderedVideo] = useState(null);
@@ -2318,99 +2318,6 @@ function App() {
                         )}
                         <label>当前配音</label>
                         <div className="path-box moviepy-audio-source">{audio?.audio_path || audio?.audio_url || '等待配音'}</div>
-                        <div className="moviepy-preview-settings">
-                            <div className="moviepy-advanced-controls">
-                              <div>
-                                <label>单段秒数</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="15"
-                                  step="1"
-                                  value={clipSeconds}
-                                  onChange={e => setClipSeconds(e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label>字幕位置</label>
-                                <select value={subtitlePosition} onChange={e => setSubtitlePosition(e.target.value)}>
-                                  <option value="bottom">底部</option>
-                                  <option value="middle">中间</option>
-                                  <option value="top">顶部</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label>每句字数</label>
-                                <input
-                                  type="number"
-                                  min="4"
-                                  max="42"
-                                  step="1"
-                                  value={subtitleMaxChars}
-                                  onChange={e => setSubtitleMaxChars(e.target.value)}
-                                />
-                              </div>
-                              <div>
-                                <label>字幕样式</label>
-                                <select value={subtitleStyle} onChange={e => setSubtitleStyle(e.target.value)}>
-                                  {SUBTITLE_STYLES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label>字号</label>
-                                <select value={subtitleSize} onChange={e => setSubtitleSize(e.target.value)}>
-                                  {SUBTITLE_SIZES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label>文字颜色</label>
-                                <select value={subtitleTextColor} onChange={e => setSubtitleTextColor(e.target.value)}>
-                                  {SUBTITLE_COLORS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label>底条</label>
-                                <select
-                                  value={subtitleBackground ? 'on' : 'off'}
-                                  onChange={e => setSubtitleBackground(e.target.value === 'on')}
-                                >
-                                  <option value="on">开启</option>
-                                  <option value="off">关闭</option>
-                                </select>
-                              </div>
-                            </div>
-                            <div className="moviepy-controls">
-                              <div>
-                                <label>渲染预设</label>
-                                <select value={renderPreset} onChange={e => setRenderPreset(e.target.value)}>
-                                  {VIDEO_RENDER_PRESETS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label>画幅</label>
-                                <select value={editRatio} onChange={e => setEditRatio(e.target.value)}>
-                                  {VIDEO_RATIOS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                                </select>
-                              </div>
-                              <label className="toggle-line moviepy-toggle">
-                                <input
-                                  type="checkbox"
-                                  checked={editAddSubtitle}
-                                  onChange={e => setEditAddSubtitle(e.target.checked)}
-                                />
-                                逐句字幕
-                              </label>
-                              <label className="toggle-line moviepy-toggle">
-                                <input
-                                  type="checkbox"
-                                  checked={useApiSubtitleTiming}
-                                  onChange={e => setUseApiSubtitleTiming(e.target.checked)}
-                                  disabled={!editAddSubtitle}
-                                />
-                                接口校准
-                              </label>
-                            </div>
-                        </div>
 	                        <button className="primary full" onClick={handleRenderVideo} disabled={videoEdit.state === 'loading'}>
 	                          {videoEdit.state === 'loading' ? <Loader2 size={18}/> : <Film size={18}/>}用当前配音成片
 	                        </button>

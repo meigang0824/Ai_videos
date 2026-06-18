@@ -523,9 +523,7 @@ label {
 }
 
 .link-input input,
-select,
-.moviepy-advanced-controls input,
-.moviepy-advanced-controls select {
+select {
   width: 100%;
   min-width: 0;
   color: var(--text);
@@ -533,9 +531,7 @@ select,
   outline: none;
 }
 
-select,
-.moviepy-advanced-controls input,
-.moviepy-advanced-controls select {
+select {
   height: 36px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -779,9 +775,7 @@ select,
   margin-top: 10px;
 }
 
-.rewrite-tuning label,
-.moviepy-advanced-controls label,
-.moviepy-controls label {
+.rewrite-tuning label {
   margin-top: 0;
 }
 
@@ -1322,60 +1316,6 @@ select,
   background: rgba(13, 18, 27, .72);
   font-weight: 600;
   text-shadow: none;
-}
-
-.moviepy-preview-settings {
-  min-width: 0;
-}
-
-.moviepy-preview-settings .moviepy-controls {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.moviepy-preview-settings .moviepy-toggle {
-  white-space: normal;
-}
-
-.moviepy-advanced-controls {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 0;
-}
-
-.moviepy-advanced-controls label {
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
-.moviepy-advanced-controls input,
-.moviepy-advanced-controls select,
-.moviepy-inline-toggle {
-  height: 32px;
-  min-height: 32px;
-}
-
-.moviepy-inline-toggle {
-  width: 100%;
-}
-
-.moviepy-controls {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  align-items: end;
-  margin-top: 10px;
-}
-
-.moviepy-controls > div {
-  min-width: 0;
-}
-
-.moviepy-controls label {
-  font-size: 12px;
-  margin-bottom: 4px;
 }
 
 .ratio-switch {
@@ -1993,9 +1933,7 @@ select,
   .api-config-grid,
   .api-config-fields,
   .admin-user-form,
-  .realtor-form,
-	  .moviepy-advanced-controls,
-	  .moviepy-controls {
+  .realtor-form {
 	    grid-template-columns: 1fr;
 	  }
 
@@ -2345,8 +2283,6 @@ select:focus-visible {
 
 .link-input input,
 select,
-.moviepy-advanced-controls input,
-.moviepy-advanced-controls select,
 .api-config-fields input,
 .api-config-fields select {
   border-color: var(--line);
