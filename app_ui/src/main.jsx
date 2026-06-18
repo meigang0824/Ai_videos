@@ -1462,6 +1462,7 @@ function App() {
       taskId: sampleTaskId,
       text: '大家好，这是当前音色的试听效果。请听一下声音是否清晰自然，语气是否符合你的口播风格。',
       speed: Number(ttsSpeed) || 1,
+      voice_id: selectedVoice.id,
       voice_ref_wav: selectedVoice.ref_wav
     };
 

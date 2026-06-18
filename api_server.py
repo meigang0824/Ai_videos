@@ -382,6 +382,23 @@ def _voice_audio_local_path(item: dict[str, Any]) -> Path | None:
     return local_path if local_path.exists() else None
 
 
+def _voice_for_tts_payload(payload: TtsPayload, user_id: str) -> dict[str, Any] | None:
+    if payload.voice_id:
+        item = voice_store.get_voice(payload.voice_id, user_id=user_id)
+        if item:
+            return item
+    if payload.voice_ref_wav:
+        item = voice_store.get_voice_by_path(Path(payload.voice_ref_wav), user_id=user_id)
+        if item:
+            return item
+        resolved = _resolve_voice_path(payload.voice_ref_wav)
+        if resolved:
+            item = voice_store.get_voice_by_path(resolved, user_id=user_id)
+            if item:
+                return item
+    return None
+
+
 def _task_for_file(task_id: str, request: Request) -> dict[str, Any]:
     user_id = _request_user_id(request)
     item = task_store.get_task(task_id, user_id=user_id)
@@ -803,7 +820,7 @@ def _execute_tts_task(task: dict[str, Any]) -> dict[str, Any]:
     user_id = task.get("user_id") or "local"
     payload = TtsPayload.model_validate(task.get("payload") or {})
     _update(task_id, 35, "正在调用 TTS 接口")
-    voice_item = voice_store.get_voice(payload.voice_id, user_id=user_id) if payload.voice_id else None
+    voice_item = _voice_for_tts_payload(payload, user_id)
     ref_path = _voice_audio_local_path(voice_item) if voice_item else None
     if not ref_path:
         ref_path = _resolve_voice_path(payload.voice_ref_wav)

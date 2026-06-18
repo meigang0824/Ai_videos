@@ -313,3 +313,64 @@ def test_upload_voice_uses_object_storage_without_persistent_local_file(tmp_path
     assert uploaded["content"] == b"RIFFcloud"
     assert uploaded["content_type"] == "audio/wav"
     assert list(voice_dir.iterdir()) == []
+
+
+def test_tts_task_resolves_object_voice_from_ref_wav_without_voice_id(tmp_path, monkeypatch):
+    voice_store = VoiceStore(tmp_path / "voices.sqlite3", migrate=False)
+    voice_dir = tmp_path / "voices"
+    tmp_dir = tmp_path / "tmp"
+    output_dir = tmp_path / "outputs"
+    remote_voice = tmp_path / "remote.wav"
+    user_id = "voice-user"
+    voice_dir.mkdir()
+    tmp_dir.mkdir()
+    output_dir.mkdir()
+    remote_voice.write_bytes(b"RIFFremote")
+    calls = {}
+
+    voice_store.upsert_voice(
+        {
+            "id": "cloud_voice",
+            "user_id": user_id,
+            "name": "云端音色",
+            "kind": "local",
+            "ref_wav": "voices/cloud_voice.wav",
+            "ref_text": "",
+            "size_bytes": remote_voice.stat().st_size,
+            "object_key": "oss/voices/cloud_voice.wav",
+            "created_at": "now",
+        }
+    )
+
+    def fake_call_tts(text, output_path, *, voice_id=None, voice_ref_wav=None, voice_ref_text=None, speed=1.0):
+        calls["voice_id"] = voice_id
+        calls["voice_ref_wav"] = voice_ref_wav
+        calls["voice_ref_bytes"] = voice_ref_wav.read_bytes() if voice_ref_wav else b""
+        output_path.write_bytes(b"RIFFgenerated")
+        return output_path
+
+    monkeypatch.setattr(api_server, "voice_store", voice_store)
+    monkeypatch.setattr(api_server, "VOICE_DIR", voice_dir)
+    monkeypatch.setattr(api_server, "TMP_DIR", tmp_dir)
+    monkeypatch.setattr(api_server, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(api_server, "call_tts", fake_call_tts)
+    monkeypatch.setattr(api_server, "_upload_to_object_storage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server.object_storage, "enabled", lambda: True)
+    monkeypatch.setattr(api_server.object_storage, "signed_url", lambda key: str(remote_voice))
+
+    result = api_server._execute_tts_task(
+        {
+            "task_id": "tts_cloud_voice",
+            "user_id": user_id,
+            "payload": {
+                "text": "试听",
+                "voice_ref_wav": "voices/cloud_voice.wav",
+                "speed": 1.0,
+            },
+        }
+    )
+
+    assert calls["voice_id"] is None
+    assert calls["voice_ref_wav"] is not None
+    assert calls["voice_ref_bytes"] == b"RIFFremote"
+    assert result["audio_url"] == "/api/v1/audio/tts_cloud_voice"
