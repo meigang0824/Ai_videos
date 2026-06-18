@@ -239,7 +239,7 @@ function withCacheBust(value) {
 }
 
 function previewVideoUrl(result = {}) {
-  return result.external_video_url || result.outputVideoUrl || result.output_video_url || result.video_url || '';
+  return result.external_video_url || result.video_object_url || result.object_url || result.outputVideoUrl || result.output_video_url || result.video_url || '';
 }
 
 function Stat({ label, value, icon, tone }) {

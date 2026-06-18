@@ -184,6 +184,23 @@ def _download_file(url: str, output_path: Path, timeout: int, base_url: str | No
                     f.write(chunk)
 
 
+def _json_response_payload(response: requests.Response) -> dict[str, Any] | None:
+    headers = getattr(response, "headers", {}) or {}
+    content_type = str(headers.get("content-type") or "").lower()
+    body = response.content or b""
+    if "json" not in content_type and not body.lstrip().startswith((b"{", b"[")):
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _absolute_url(url: str, base_url: str) -> str:
+    return urljoin(base_url, url)
+
+
 def _replace_path_suffix(url: str, old_suffix: str, new_suffix: str) -> str | None:
     base = url.split("?", 1)[0].rstrip("/")
     if not base.endswith(old_suffix):
@@ -522,6 +539,16 @@ def call_lip_sync(video_path: Path, audio_path: Path, output_path: Path, options
         response = requests.post(config["url"], headers=_lip_sync_headers(config), data=data, files=files, timeout=timeout)
     _raise_for_status(response)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    json_payload = _json_response_payload(response)
+    if json_payload is not None:
+        video_url = _get_path(json_payload, config.get("videoPath")) or json_payload.get("video_url")
+        if not video_url:
+            raise RuntimeError("口型同步接口未返回视频地址")
+        video_url = str(video_url)
+        if video_url.startswith(("http://", "https://")):
+            return {**json_payload, "video_url": video_url, "external_video_url": video_url}
+        _download_file(video_url, output_path, timeout, config["url"])
+        return {**json_payload, "video_url": _absolute_url(video_url, config["url"]), "video_path": str(output_path)}
     if output_mode == "binary":
         output_path.write_bytes(response.content)
         return {"video_path": str(output_path)}
@@ -535,7 +562,11 @@ def call_lip_sync(video_path: Path, audio_path: Path, output_path: Path, options
     video_url = _get_path(result, config.get("videoPath")) or result.get("video_url")
     if not video_url:
         raise RuntimeError("口型同步接口未返回视频地址")
-    return {**result, "video_url": str(video_url), "external_video_url": str(video_url)}
+    video_url = str(video_url)
+    if video_url.startswith(("http://", "https://")):
+        return {**result, "video_url": video_url, "external_video_url": video_url}
+    _download_file(video_url, output_path, timeout, config["url"])
+    return {**result, "video_url": _absolute_url(video_url, config["url"]), "video_path": str(output_path)}
 
 
 def call_video_compose(payload: dict[str, Any], output_path: Path) -> dict[str, Any]:

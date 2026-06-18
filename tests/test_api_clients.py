@@ -431,3 +431,55 @@ def test_lip_sync_json_url_preserves_external_video_url(tmp_path, monkeypatch):
     assert result["external_video_url"] == "https://oss.example.com/lip.mp4?signature=keep"
     assert not output_path.exists()
     assert calls[0]["headers"]["Authorization"] == "Bearer lip-secret"
+
+
+def test_lip_sync_binary_mode_handles_json_relative_video_url(tmp_path, monkeypatch):
+    calls = []
+
+    class LipSyncResponse:
+        content = b'{"video_url":"/outputs/lip.mp4","engine":"latentsync"}'
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"video_url": "/outputs/lip.mp4", "engine": "latentsync"}
+
+    monkeypatch.setattr(
+        api_clients,
+        "load_service_config",
+        lambda mask_secret=False: {
+            "lipSync": {
+                "enabled": True,
+                "url": "http://video.local/v1/avatar/latentsync",
+                "apiKey": "lip-secret",
+                "timeout": 900,
+            }
+        },
+    )
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None, **kwargs):
+        calls.append({"url": url, "headers": headers, "data": data, "files": files, "timeout": timeout, "kwargs": kwargs})
+        return LipSyncResponse()
+
+    def fake_download(url, output_path, timeout, base_url=None):
+        assert url == "/outputs/lip.mp4"
+        assert base_url == "http://video.local/v1/avatar/latentsync"
+        output_path.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+
+    monkeypatch.setattr(api_clients.requests, "post", fake_post)
+    monkeypatch.setattr(api_clients, "_download_file", fake_download)
+
+    video_path = tmp_path / "source.mp4"
+    audio_path = tmp_path / "audio.wav"
+    output_path = tmp_path / "lip.mp4"
+    video_path.write_bytes(b"video")
+    audio_path.write_bytes(b"audio")
+
+    result = api_clients.call_lip_sync(video_path, audio_path, output_path, {"pads": [0, 10, 0, 0]})
+
+    assert output_path.read_bytes().startswith(b"\x00\x00\x00\x18ftyp")
+    assert result["video_url"] == "http://video.local/outputs/lip.mp4"
+    assert result["video_path"] == str(output_path)
+    assert calls[0]["headers"]["Authorization"] == "Bearer lip-secret"
