@@ -1693,12 +1693,12 @@ def delete_voice(voice_id: str, request: Request):
 def voice_audio(voice_id: str, request: Request):
     item = _find_user_voice(voice_id, _require_user(request))
     if item:
-        redirect = _redirect_to_object(item.get("object_key"))
-        if redirect:
-            return redirect
         path = _voice_audio_local_path(item)
         if path and path.exists():
             return FileResponse(path)
+        redirect = _redirect_to_object(item.get("object_key"))
+        if redirect:
+            return redirect
     raise HTTPException(status_code=404, detail="音色不存在")
 
 
