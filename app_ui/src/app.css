@@ -1970,9 +1970,14 @@ select,
     padding: 16px 12px 22px;
   }
 
-  .stats,
-  .top-actions {
+  .stats {
     display: none;
+  }
+
+  .top-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .admin-shell .top-actions {
@@ -2466,6 +2471,14 @@ label,
   .topbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .top-actions {
+    width: 100%;
+  }
+
+  .top-actions .ghost {
+    min-width: 96px;
   }
 
   .side-nav,
