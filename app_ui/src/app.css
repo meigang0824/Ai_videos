@@ -1497,24 +1497,6 @@ select,
   text-align: center;
 }
 
-.wav2lip-controls {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.wav2lip-controls input,
-.wav2lip-controls select {
-  width: 100%;
-  height: 36px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface-3);
-  color: var(--text);
-  padding: 0 10px;
-}
-
 .wav2lip-target-note {
   min-height: 42px;
   margin-top: 8px;
@@ -2013,8 +1995,7 @@ select,
   .admin-user-form,
   .realtor-form,
 	  .moviepy-advanced-controls,
-	  .moviepy-controls,
-	  .wav2lip-controls {
+	  .moviepy-controls {
 	    grid-template-columns: 1fr;
 	  }
 
@@ -2366,8 +2347,6 @@ select:focus-visible {
 select,
 .moviepy-advanced-controls input,
 .moviepy-advanced-controls select,
-.wav2lip-controls input,
-.wav2lip-controls select,
 .api-config-fields input,
 .api-config-fields select {
   border-color: var(--line);

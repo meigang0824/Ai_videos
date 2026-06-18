@@ -876,10 +876,6 @@ function App() {
   const [wav2lipUpload, setWav2lipUpload] = useState({ state: 'idle', message: '' });
   const [wav2lipSourceVideo, setWav2lipSourceVideo] = useState(null);
   const [wav2lipAudioUrl, setWav2lipAudioUrl] = useState('');
-  const [wav2lipPads, setWav2lipPads] = useState([0, 10, 0, 0]);
-  const [wav2lipResizeFactor, setWav2lipResizeFactor] = useState(3);
-  const [wav2lipNoSmooth, setWav2lipNoSmooth] = useState(false);
-  const [wav2lipEnhanceMode, setWav2lipEnhanceMode] = useState('none');
   const [wav2lipVideo, setWav2lipVideo] = useState(null);
   const [historyItems, setHistoryItems] = useState([]);
   const [storageStats, setStorageStats] = useState(null);
@@ -1825,11 +1821,7 @@ function App() {
         {
           taskId,
           videoUrl,
-          audioUrl,
-          pads: wav2lipPads.map(item => Number(item) || 0),
-          resizeFactor: Number(wav2lipResizeFactor) || 3,
-          noSmooth: wav2lipNoSmooth,
-          enhanceMode: wav2lipEnhanceMode
+          audioUrl
         },
         task => setWav2lip({ state: 'loading', message: progressMessage('正在调用口型同步接口', task) }),
         { timeoutMs: 20 * 60 * 1000 }
@@ -1881,10 +1873,6 @@ function App() {
     if (item.kind === 'wav2lip' && previewVideoUrl(result)) {
       const videoUrl = withAuthQuery(withCacheBust(previewVideoUrl(result)));
       setWav2lipAudioUrl(result.audio_source_path || '');
-      setWav2lipPads(result.pads || [0, 10, 0, 0]);
-      setWav2lipResizeFactor(result.resize_factor || 3);
-      setWav2lipNoSmooth(Boolean(result.no_smooth));
-      setWav2lipEnhanceMode(result.enhance_mode || 'none');
       setWav2lipVideo({ ...result, video_url: videoUrl });
       setRenderedVideo({ ...result, video_url: videoUrl });
       setWav2lip({ state: 'done', message: '已载入历史口型同步视频' });
@@ -2473,47 +2461,6 @@ function App() {
                           onChange={e => setWav2lipAudioUrl(e.target.value)}
                           placeholder="默认使用模块 3 生成的配音"
                         />
-                        <div className="wav2lip-controls">
-                          {['上', '下', '左', '右'].map((label, index) => (
-                            <div key={label}>
-                              <label>{label}边距</label>
-                              <input
-                                type="number"
-                                min="-80"
-                                max="120"
-                                value={wav2lipPads[index]}
-                                onChange={e => setWav2lipPads(prev => {
-                                  const next = [...prev];
-                                  next[index] = Number(e.target.value) || 0;
-                                  return next;
-                                })}
-                              />
-                            </div>
-                          ))}
-                          <div>
-                            <label>缩放</label>
-                            <select value={wav2lipResizeFactor} onChange={e => setWav2lipResizeFactor(Number(e.target.value))}>
-                              <option value={1}>原始</option>
-                              <option value={2}>1/2</option>
-                              <option value={3}>1/3</option>
-                              <option value={4}>1/4</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label>平滑</label>
-                            <select value={wav2lipNoSmooth ? 'off' : 'on'} onChange={e => setWav2lipNoSmooth(e.target.value === 'off')}>
-                              <option value="on">开启</option>
-                              <option value="off">关闭</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label>画质修复</label>
-                            <select value={wav2lipEnhanceMode} onChange={e => setWav2lipEnhanceMode(e.target.value)}>
-                              <option value="none">关闭</option>
-                              <option value="retalking">接口增强</option>
-                            </select>
-                          </div>
-                        </div>
 	                        <button className="primary full" onClick={handleGenerateLipSync} disabled={wav2lip.state === 'loading'}>
 	                          {wav2lip.state === 'loading' ? <Loader2 size={18}/> : <AudioLines size={18}/>}生成口型同步
 	                        </button>
