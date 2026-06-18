@@ -1791,7 +1791,7 @@ function App() {
       });
       setVideoEdit({
           state: 'done',
-          message: `视频生成完成，${data.source_count || videoSources.length} 个素材${data.segment_count ? `，剪成 ${data.segment_count} 段` : ''}${data.clip_seconds ? `，每段约 ${data.clip_seconds} 秒` : ''}${data.subtitle_count ? `，${data.subtitle_count} 句字幕` : ''}${data.subtitle_source ? `，字幕${data.subtitle_source === 'api' ? '接口校准' : '文案估算'}` : ''}，${data.duration ? `${data.duration} 秒，` : ''}${asSeconds(elapsedMs)}`
+          message: `视频生成完成，${data.source_count || videoSources.length} 个素材${data.segment_count ? `，剪成 ${data.segment_count} 段` : ''}${data.clip_seconds ? `，每段约 ${data.clip_seconds} 秒` : ''}${data.subtitle_count ? `，${data.subtitle_count} 句字幕` : ''}，${data.duration ? `${data.duration} 秒，` : ''}${asSeconds(elapsedMs)}`
       });
       refreshHistory();
       refreshStorage();
