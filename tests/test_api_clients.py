@@ -172,6 +172,13 @@ def test_service_config_save_prunes_legacy_fields(tmp_path, monkeypatch):
                 "outputMode": "binary",
                 "base64Path": "audio",
             },
+            "lipSync": {
+                "enabled": True,
+                "url": "http://video.local/v1/avatar/latentsync",
+                "videoPath": "data.video_url",
+                "outputMode": "json_url",
+                "base64Path": "data.video",
+            },
             "videoCompose": {
                 "enabled": True,
                 "url": "http://video.local/v1/video/compose",
@@ -196,6 +203,9 @@ def test_service_config_save_prunes_legacy_fields(tmp_path, monkeypatch):
     assert "promptTextField" not in persisted["tts"]
     assert "outputMode" not in persisted["tts"]
     assert "base64Path" not in persisted["tts"]
+    assert persisted["lipSync"]["outputMode"] == "json_url"
+    assert persisted["lipSync"]["videoPath"] == "data.video_url"
+    assert persisted["lipSync"]["base64Path"] == "data.video"
     assert "videoPath" not in persisted["videoCompose"]
 
 
@@ -370,3 +380,54 @@ def test_lip_sync_uses_api_key_as_bearer_token(tmp_path, monkeypatch):
     assert "Content-Type" not in calls[0]["headers"]
     assert "video" in calls[0]["files"]
     assert "audio" in calls[0]["files"]
+
+
+def test_lip_sync_json_url_preserves_external_video_url(tmp_path, monkeypatch):
+    calls = []
+
+    class LipSyncResponse:
+        content = b""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"video_url": "https://oss.example.com/lip.mp4?signature=keep"}}
+
+    monkeypatch.setattr(
+        api_clients,
+        "load_service_config",
+        lambda mask_secret=False: {
+            "lipSync": {
+                "enabled": True,
+                "url": "http://video.local/v1/avatar/latentsync",
+                "apiKey": "lip-secret",
+                "timeout": 900,
+                "outputMode": "json_url",
+                "videoPath": "data.video_url",
+            }
+        },
+    )
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None, **kwargs):
+        calls.append({"url": url, "headers": headers, "data": data, "files": files, "timeout": timeout, "kwargs": kwargs})
+        return LipSyncResponse()
+
+    def fail_download(*args, **kwargs):
+        raise AssertionError("json_url 口型同步结果不应再下载到本地")
+
+    monkeypatch.setattr(api_clients.requests, "post", fake_post)
+    monkeypatch.setattr(api_clients, "_download_file", fail_download)
+
+    video_path = tmp_path / "source.mp4"
+    audio_path = tmp_path / "audio.wav"
+    output_path = tmp_path / "lip.mp4"
+    video_path.write_bytes(b"video")
+    audio_path.write_bytes(b"audio")
+
+    result = api_clients.call_lip_sync(video_path, audio_path, output_path, {"pads": [0, 10, 0, 0]})
+
+    assert result["video_url"] == "https://oss.example.com/lip.mp4?signature=keep"
+    assert result["external_video_url"] == "https://oss.example.com/lip.mp4?signature=keep"
+    assert not output_path.exists()
+    assert calls[0]["headers"]["Authorization"] == "Bearer lip-secret"

@@ -180,6 +180,9 @@ const DEFAULT_SERVICE_CONFIG = {
     enabled: false,
     url: '',
     apiKey: '',
+    outputMode: 'binary',
+    videoPath: 'video_url',
+    base64Path: 'video',
     timeout: 900
   },
   videoCompose: {
@@ -228,6 +231,15 @@ function withAuthQuery(value) {
   if (!token || !value || !value.startsWith('/api/')) return value;
   if (value.includes('access_token=')) return value;
   return `${value}${value.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`;
+}
+
+function withCacheBust(value) {
+  if (!value) return value;
+  return `${value}${value.includes('?') ? '&' : '?'}t=${Date.now()}`;
+}
+
+function previewVideoUrl(result = {}) {
+  return result.external_video_url || result.outputVideoUrl || result.output_video_url || result.video_url || '';
 }
 
 function Stat({ label, value, icon, tone }) {
@@ -1822,7 +1834,7 @@ function App() {
         task => setWav2lip({ state: 'loading', message: progressMessage('正在调用口型同步接口', task) }),
         { timeoutMs: 20 * 60 * 1000 }
       );
-      const video = withAuthQuery(`${data.video_url}?t=${Date.now()}`);
+      const video = withAuthQuery(withCacheBust(previewVideoUrl(data)));
       setWav2lipVideo({ ...data, video_url: video });
       setRenderedVideo({ ...data, video_url: video });
       setWav2lip({ state: 'done', message: `口型同步完成，${asSeconds(elapsedMs)}` });
@@ -1866,8 +1878,8 @@ function App() {
       });
       setVideoEdit({ state: 'done', message: '已载入历史成片' });
     }
-    if (item.kind === 'wav2lip' && result.video_url) {
-      const videoUrl = withAuthQuery(`${result.video_url}?t=${Date.now()}`);
+    if (item.kind === 'wav2lip' && previewVideoUrl(result)) {
+      const videoUrl = withAuthQuery(withCacheBust(previewVideoUrl(result)));
       setWav2lipAudioUrl(result.audio_source_path || '');
       setWav2lipPads(result.pads || [0, 10, 0, 0]);
       setWav2lipResizeFactor(result.resize_factor || 3);

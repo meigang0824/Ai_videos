@@ -913,7 +913,7 @@ def _execute_wav2lip_task(task: dict[str, Any]) -> dict[str, Any]:
     audio_path = _resolve_media_to_local(payload.audioUrl, base_url, ".wav")
     output_path = OUTPUT_DIR / f"{task_id}_wav2lip_video.mp4"
     _update(task_id, 45, "正在调用口型同步接口")
-    call_lip_sync(
+    lip_result = call_lip_sync(
         video_path,
         audio_path,
         output_path,
@@ -924,22 +924,38 @@ def _execute_wav2lip_task(task: dict[str, Any]) -> dict[str, Any]:
             "enhanceMode": payload.enhanceMode,
         },
     )
+    external_video_url = ""
+    if isinstance(lip_result, dict):
+        external_video_url = str(
+            lip_result.get("external_video_url")
+            or lip_result.get("video_url")
+            or lip_result.get("outputVideoUrl")
+            or lip_result.get("output_video_url")
+            or ""
+        ).strip()
+        lip_video_path = str(lip_result.get("video_path") or output_path)
+    else:
+        lip_video_path = str(output_path)
+    has_local_video = Path(lip_video_path).exists()
     result = {
         "task_id": task_id,
-        "video_url": _public_url("wav2lip", task_id),
-        "video_path": str(output_path),
+        "video_url": external_video_url or _public_url("wav2lip", task_id),
+        "video_path": lip_video_path if has_local_video else "",
         "audio_source_path": payload.audioUrl,
         "pads": payload.pads,
         "resize_factor": payload.resizeFactor,
         "no_smooth": payload.noSmooth,
         "enhance_mode": payload.enhanceMode,
-        "size_bytes": _file_size(output_path),
+        "size_bytes": _file_size(Path(lip_video_path)) if has_local_video else 0,
     }
-    _apply_object_result(
-        result,
-        "video",
-        _upload_to_object_storage(output_path, user_id=user_id, purpose="outputs/wav2lip", task_id=task_id),
-    )
+    if external_video_url:
+        result["external_video_url"] = external_video_url
+    if has_local_video:
+        _apply_object_result(
+            result,
+            "video",
+            _upload_to_object_storage(Path(lip_video_path), user_id=user_id, purpose="outputs/wav2lip", task_id=task_id),
+        )
     return result
 
 

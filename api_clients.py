@@ -47,6 +47,9 @@ DEFAULT_SERVICE_CONFIG: dict[str, Any] = {
         "enabled": False,
         "url": "",
         "apiKey": "",
+        "outputMode": "binary",
+        "videoPath": "video_url",
+        "base64Path": "video",
         "timeout": 900,
     },
     "videoCompose": {
@@ -505,7 +508,7 @@ def call_tts(
     return output_path
 
 
-def call_lip_sync(video_path: Path, audio_path: Path, output_path: Path, options: dict[str, Any] | None = None) -> Path:
+def call_lip_sync(video_path: Path, audio_path: Path, output_path: Path, options: dict[str, Any] | None = None) -> dict[str, Any]:
     config = _section("lipSync")
     timeout = _timeout(config, 900)
     output_mode = str(config.get("outputMode") or "binary")
@@ -521,19 +524,18 @@ def call_lip_sync(video_path: Path, audio_path: Path, output_path: Path, options
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_mode == "binary":
         output_path.write_bytes(response.content)
-        return output_path
+        return {"video_path": str(output_path)}
     result = response.json()
     if output_mode == "json_base64":
         raw = _get_path(result, config.get("base64Path")) or result.get("video")
         if not raw:
             raise RuntimeError("口型同步接口未返回 base64 视频")
         output_path.write_bytes(base64.b64decode(str(raw).split(",")[-1]))
-        return output_path
+        return {**result, "video_path": str(output_path)}
     video_url = _get_path(result, config.get("videoPath")) or result.get("video_url")
     if not video_url:
         raise RuntimeError("口型同步接口未返回视频地址")
-    _download_file(str(video_url), output_path, timeout, config["url"])
-    return output_path
+    return {**result, "video_url": str(video_url), "external_video_url": str(video_url)}
 
 
 def call_video_compose(payload: dict[str, Any], output_path: Path) -> dict[str, Any]:

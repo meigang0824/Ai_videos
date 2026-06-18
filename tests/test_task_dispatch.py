@@ -104,6 +104,45 @@ def test_finish_clears_stale_error(tmp_path, monkeypatch):
     assert item["error"] is None
 
 
+def test_wav2lip_task_preserves_external_video_url(tmp_path, monkeypatch):
+    source_video = tmp_path / "source.mp4"
+    source_audio = tmp_path / "audio.wav"
+    source_video.write_bytes(b"video")
+    source_audio.write_bytes(b"audio")
+    external_url = "https://oss.example.com/wav2lip.mp4?signature=keep"
+
+    def fake_resolve_media(value, base_url, suffix):
+        return source_video if suffix == ".mp4" else source_audio
+
+    def fake_lip_sync(video_path, audio_path, output_path, options):
+        assert video_path == source_video
+        assert audio_path == source_audio
+        return {"video_url": external_url, "external_video_url": external_url}
+
+    def fail_upload(*args, **kwargs):
+        raise AssertionError("外部口型同步 URL 不应再上传本地输出文件")
+
+    monkeypatch.setattr(api_server, "_resolve_media_to_local", fake_resolve_media)
+    monkeypatch.setattr(api_server, "call_lip_sync", fake_lip_sync)
+    monkeypatch.setattr(api_server, "_upload_to_object_storage", fail_upload)
+
+    result = api_server._execute_wav2lip_task(
+        {
+            "task_id": "wav2lip_external_url_test",
+            "user_id": "local",
+            "payload": {
+                "videoUrl": "https://oss.example.com/source.mp4",
+                "audioUrl": "https://oss.example.com/audio.wav",
+            },
+        }
+    )
+
+    assert result["video_url"] == external_url
+    assert result["external_video_url"] == external_url
+    assert result["video_path"] == ""
+    assert result["size_bytes"] == 0
+
+
 def test_orphaned_queued_task_is_marked_failed(tmp_path, monkeypatch):
     task_store = TaskStore(tmp_path / "task_store.sqlite3")
     monkeypatch.setattr(api_server, "task_store", task_store)
