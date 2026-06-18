@@ -153,13 +153,14 @@ curl -X POST http://127.0.0.1:8010/api/v1/upload-voice \
   "voice": {
     "id": "1718000000000_ab12cd",
     "name": "音色 0615-1050",
-    "ref_wav": "/Users/apple/CosyVoice_API_Only/voices/xxx.wav",
+    "ref_wav": "voices/xxx.wav",
+    "object_key": "cosyvoice/users/user_id/voices/audio/xxx.wav",
     "ref_text": ""
   }
 }
 ```
 
-注意：导入音色不会覆盖旧音色，会生成新的音色记录。导入时只保存音频和数据库记录，不再同步调用 ASR 识别参考文本；OSS 同步在后台执行，避免导入页面长时间等待。
+注意：导入音色不会覆盖旧音色，会生成新的音色记录。导入时会把音频保存到本地 `voices/`，数据库里的 `ref_wav` 使用相对路径，避免迁移到云端后仍指向开发机绝对路径。启用 OSS/MinIO 后，音频会在后台同步到对象存储，试听和生成语音时优先使用 `object_key`，本地文件只作为兜底。
 
 ## 7. 查询音色列表
 
@@ -199,7 +200,7 @@ curl -X POST http://127.0.0.1:8010/api/v1/speech/start \
     "taskId": "speech_demo_001",
     "text": "这是要生成的口播内容",
     "voice_id": "1718000000000_ab12cd",
-    "voice_ref_wav": "/Users/apple/CosyVoice_API_Only/voices/xxx.wav",
+    "voice_ref_wav": "voices/xxx.wav",
     "speed": 1.0
   }'
 ```

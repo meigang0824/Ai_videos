@@ -270,6 +270,53 @@ def _redirect_to_object(key: str | None):
         return None
 
 
+def _relative_to_base(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(BASE_DIR.resolve()))
+    except (OSError, ValueError):
+        return str(path)
+
+
+def _resolve_voice_path(raw_path: str | None) -> Path | None:
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+    else:
+        candidates.append(BASE_DIR / path)
+        candidates.append(VOICE_DIR / path.name)
+    if path.name:
+        candidates.append(VOICE_DIR / path.name)
+    for candidate in candidates:
+        try:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return candidates[0] if candidates else None
+
+
+def _voice_audio_local_path(item: dict[str, Any]) -> Path | None:
+    path = _resolve_voice_path(item.get("ref_wav"))
+    if path and path.exists():
+        return path
+    key = str(item.get("object_key") or "").strip()
+    if not key or not object_storage.enabled():
+        return None
+    suffix = Path(str(item.get("ref_wav") or "")).suffix or ".wav"
+    local_path = TMP_DIR / "voices" / f"{item.get('id') or uuid.uuid4().hex}{suffix}"
+    try:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        signed = object_storage.signed_url(key)
+        download_or_copy_media(signed, local_path, os.getenv("PUBLIC_BASE_URL", ""))
+    except Exception:
+        return None
+    return local_path if local_path.exists() else None
+
+
 def _task_for_file(task_id: str, request: Request) -> dict[str, Any]:
     user_id = _request_user_id(request)
     item = task_store.get_task(task_id, user_id=user_id)
@@ -333,22 +380,34 @@ def _find_user_voice(voice_id: str | None, user: dict[str, Any]) -> dict[str, An
 
 def _find_user_voice_by_path(path: Path, user: dict[str, Any]) -> dict[str, Any] | None:
     resolved = path.expanduser()
-    item = voice_store.get_voice_by_path(resolved)
-    if item and _voice_visible_to_user(item, user):
-        return item
+    candidates = [resolved]
+    if not resolved.is_absolute():
+        candidates.append(BASE_DIR / resolved)
+        candidates.append(VOICE_DIR / resolved.name)
+    if resolved.name:
+        candidates.append(VOICE_DIR / resolved.name)
+    for candidate in candidates:
+        item = voice_store.get_voice_by_path(candidate)
+        if item and _voice_visible_to_user(item, user):
+            return item
     for item in _iter_voice_meta():
-        ref_path = Path(item.get("ref_wav") or "").expanduser()
-        if _voice_visible_to_user(item, user) and ref_path == resolved:
+        ref_path = _resolve_voice_path(item.get("ref_wav"))
+        if not ref_path:
+            continue
+        ref_candidates = {ref_path.expanduser(), Path(item.get("ref_wav") or "").expanduser()}
+        if ref_path.name:
+            ref_candidates.add(VOICE_DIR / ref_path.name)
+        if _voice_visible_to_user(item, user) and any(candidate in ref_candidates for candidate in candidates):
             return item
     return None
 
 
 def _delete_local_voice_file(item: dict[str, Any]) -> bool:
-    raw_path = item.get("ref_wav") or ""
-    if not raw_path:
+    path = _resolve_voice_path(item.get("ref_wav"))
+    if not path:
         return False
     try:
-        path = Path(raw_path).expanduser().resolve()
+        path = path.expanduser().resolve()
         voice_root = VOICE_DIR.resolve()
     except OSError:
         return False
@@ -679,9 +738,10 @@ def _execute_tts_task(task: dict[str, Any]) -> dict[str, Any]:
     user_id = task.get("user_id") or "local"
     payload = TtsPayload.model_validate(task.get("payload") or {})
     _update(task_id, 35, "正在调用 TTS 接口")
-    ref_path = Path(payload.voice_ref_wav).expanduser() if payload.voice_ref_wav else None
-    if ref_path and not ref_path.is_absolute():
-        ref_path = BASE_DIR / ref_path
+    voice_item = voice_store.get_voice(payload.voice_id, user_id=user_id) if payload.voice_id else None
+    ref_path = _voice_audio_local_path(voice_item) if voice_item else None
+    if not ref_path:
+        ref_path = _resolve_voice_path(payload.voice_ref_wav)
     output_path = OUTPUT_DIR / f"{task_id}.wav"
     call_tts(
         payload.text,
@@ -1561,12 +1621,13 @@ async def upload_voice(request: Request, background_tasks: BackgroundTasks, file
     user_id = _request_user_id(request)
     path, size = await _save_upload(file, VOICE_DIR, ALLOWED_AUDIO_SUFFIXES)
     voice_id = path.stem
+    ref_wav = _relative_to_base(path)
     voice = {
         "id": voice_id,
         "name": f"音色 {datetime.now().strftime('%m%d-%H%M')}",
         "kind": "local",
         "user_id": user_id,
-        "ref_wav": str(path),
+        "ref_wav": ref_wav,
         "ref_text": "",
         "size_bytes": size,
         "created_at": _now(),
@@ -1635,8 +1696,8 @@ def voice_audio(voice_id: str, request: Request):
         redirect = _redirect_to_object(item.get("object_key"))
         if redirect:
             return redirect
-        path = Path(item.get("ref_wav") or "")
-        if path.exists():
+        path = _voice_audio_local_path(item)
+        if path and path.exists():
             return FileResponse(path)
     raise HTTPException(status_code=404, detail="音色不存在")
 
