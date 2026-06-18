@@ -13,9 +13,6 @@ services:
     build: .
     env_file:
       - .env
-    environment:
-      ALIYUN_OSS_ACCESS_KEY_ID: "${ALIYUN_OSS_ACCESS_KEY_ID:-}"
-      ALIYUN_OSS_ACCESS_KEY_SECRET: "${ALIYUN_OSS_ACCESS_KEY_SECRET:-}"
     ports:
       - "${PORT:-8010}:8010"
     volumes:
@@ -35,9 +32,6 @@ services:
     build: .
     env_file:
       - .env
-    environment:
-      ALIYUN_OSS_ACCESS_KEY_ID: "${ALIYUN_OSS_ACCESS_KEY_ID:-}"
-      ALIYUN_OSS_ACCESS_KEY_SECRET: "${ALIYUN_OSS_ACCESS_KEY_SECRET:-}"
     command: >
       sh -c "alembic upgrade head &&
       celery -A pipeline.celery_app:celery_app worker
