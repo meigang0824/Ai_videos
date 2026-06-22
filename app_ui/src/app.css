@@ -1895,6 +1895,44 @@ select {
   font-size: 12px;
 }
 
+.active-task-notice {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(76, 141, 255, .32);
+  border-radius: 8px;
+  background: rgba(76, 141, 255, .08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.active-task-notice strong,
+.active-task-notice span {
+  display: block;
+}
+
+.active-task-notice strong {
+  font-size: 14px;
+}
+
+.active-task-notice span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.active-task-notice button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .usage-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2648,6 +2686,15 @@ label,
 
   .usage-grid {
     grid-template-columns: 1fr;
+  }
+
+  .active-task-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .active-task-notice button {
+    width: 100%;
   }
 
   .admin-table td .ghost {

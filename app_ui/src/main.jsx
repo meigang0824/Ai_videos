@@ -908,6 +908,7 @@ function App() {
   const [wav2lipVideo, setWav2lipVideo] = useState(null);
   const [historyItems, setHistoryItems] = useState([]);
   const [historyCategory, setHistoryCategory] = useState('all');
+  const [activeHistoryAutoFocus, setActiveHistoryAutoFocus] = useState(false);
   const [storageStats, setStorageStats] = useState(null);
   const [usageStats, setUsageStats] = useState(null);
   const [serviceConfig, setServiceConfig] = useState(DEFAULT_SERVICE_CONFIG);
@@ -954,6 +955,27 @@ function App() {
     wav2lip
   ].some(item => item.state === 'loading');
 
+  const historyCategoryCounts = useMemo(() => {
+    const counts = { all: historyItems.length, video: 0, wav2lip: 0, tts: 0, script: 0, active: 0, failed: 0 };
+    historyItems.forEach(item => {
+      const category = historyItemCategory(item);
+      if (Object.prototype.hasOwnProperty.call(counts, category)) {
+        counts[category] += 1;
+      }
+    });
+    return counts;
+  }, [historyItems]);
+
+  const activeHistoryItems = useMemo(
+    () => historyItems.filter(item => historyItemCategory(item) === 'active'),
+    [historyItems]
+  );
+
+  const visibleHistoryItems = useMemo(() => {
+    if (historyCategory === 'all') return historyItems;
+    return historyItems.filter(item => historyItemCategory(item) === historyCategory);
+  }, [historyCategory, historyItems]);
+
   useEffect(() => {
     getJSON('/api/v1/app-config')
       .then(data => {
@@ -983,6 +1005,42 @@ function App() {
     }, 6000);
     return () => window.clearInterval(timer);
   }, [hasActiveWork]);
+
+  useEffect(() => {
+    if (!activeHistoryItems.length) return;
+    const timer = window.setInterval(() => {
+      refreshHistory();
+      refreshStorage();
+      refreshUsage();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeHistoryItems.length]);
+
+  useEffect(() => {
+    if (activeHistoryItems.length && !activeHistoryAutoFocus) {
+      setHistoryCategory('active');
+      setActiveHistoryAutoFocus(true);
+      return;
+    }
+    if (!activeHistoryItems.length && activeHistoryAutoFocus && historyCategory === 'active') {
+      setHistoryCategory('all');
+    }
+  }, [activeHistoryAutoFocus, activeHistoryItems.length, historyCategory]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      refreshHistory();
+      refreshStorage();
+      refreshUsage();
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshWhenVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshWhenVisible);
+    };
+  }, []);
 
   useEffect(() => {
     getJSON('/api/v1/rewrite-options')
@@ -1072,22 +1130,6 @@ function App() {
     segments: segments.length || 0,
     audioDuration: audio?.duration_sec ? `${audio.duration_sec}s` : '-'
   }), [extractedScript, finalScript, segments, audio]);
-
-  const historyCategoryCounts = useMemo(() => {
-    const counts = { all: historyItems.length, video: 0, wav2lip: 0, tts: 0, script: 0, active: 0, failed: 0 };
-    historyItems.forEach(item => {
-      const category = historyItemCategory(item);
-      if (Object.prototype.hasOwnProperty.call(counts, category)) {
-        counts[category] += 1;
-      }
-    });
-    return counts;
-  }, [historyItems]);
-
-  const visibleHistoryItems = useMemo(() => {
-    if (historyCategory === 'all') return historyItems;
-    return historyItems.filter(item => historyItemCategory(item) === historyCategory);
-  }, [historyCategory, historyItems]);
 
   const taskStatus = storageStats?.task_status || {};
   const queuedTasks = Number(taskStatus.queued || 0);
@@ -2513,6 +2555,17 @@ function App() {
               <em>{failedTasks ? `${failedTasks} 个失败任务可重试` : '没有等待任务'}</em>
 	            </div>
 	          </div>
+          {activeHistoryItems.length > 0 && (
+            <div className="active-task-notice">
+              <div>
+                <strong>{activeHistoryItems.length} 个任务正在执行</strong>
+                <span>页面关闭后任务仍在服务端继续运行，重新进入会自动同步进度。</span>
+              </div>
+              <button type="button" onClick={() => setHistoryCategory('active')}>
+                查看处理中
+              </button>
+            </div>
+          )}
           <div className="history-filter">
             {HISTORY_CATEGORIES.map(category => (
               <button
