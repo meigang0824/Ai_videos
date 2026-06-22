@@ -1839,7 +1839,7 @@ select {
 }
 
 .history-list {
-  max-height: 500px;
+  max-height: 300px;
   margin-top: 10px;
   overflow: auto;
   display: grid;
@@ -2329,7 +2329,7 @@ select:focus-visible {
 
 .factory-layout {
   grid-template-columns: repeat(3, minmax(260px, 1fr));
-  grid-auto-rows: minmax(640px, auto);
+  grid-auto-rows: minmax(500px, auto);
   gap: 18px;
   margin-top: 0;
 }
@@ -2343,6 +2343,12 @@ select:focus-visible {
 
 .section {
   padding: 20px;
+}
+
+.video-workflow-section,
+.result-section,
+.history-section {
+  min-height: 500px;
 }
 
 .section-title {
@@ -2534,7 +2540,7 @@ label,
 
   .factory-layout {
     grid-template-columns: 1fr;
-    grid-auto-rows: minmax(620px, auto);
+    grid-auto-rows: minmax(460px, auto);
   }
 
   .usage-grid {
