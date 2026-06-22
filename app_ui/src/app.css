@@ -1988,6 +1988,16 @@ select {
   align-items: center;
 }
 
+.history-item.active {
+  border-color: rgba(76, 141, 255, .32);
+  background: rgba(76, 141, 255, .07);
+}
+
+.history-item.failed {
+  border-color: rgba(236, 94, 94, .28);
+  background: rgba(236, 94, 94, .06);
+}
+
 .history-actions {
   display: flex;
   flex-wrap: wrap;

@@ -271,6 +271,29 @@ function historyItemCategory(item = {}) {
   return 'other';
 }
 
+function historyStatusLabel(item = {}) {
+  if (item.status === 'success') return '完成';
+  if (item.status === 'queued') return '排队中';
+  if (item.status === 'running') return '执行中';
+  if (item.status === 'failed') return '失败';
+  if (item.status === 'canceled') return '已取消';
+  return item.status || '未知';
+}
+
+function historyStatusDetail(item = {}) {
+  const parts = [historyStatusLabel(item)];
+  if (item.status === 'queued') {
+    parts.push('等待空闲执行');
+  } else if (item.status === 'running' && Number(item.progress || 0) > 0) {
+    parts.push(`${Number(item.progress)}%`);
+  }
+  if (item.message && item.message !== item.status) {
+    parts.push(item.message);
+  }
+  parts.push(item.task_id);
+  return parts.filter(Boolean).join(' · ');
+}
+
 function Stat({ label, value, icon, tone }) {
   return <div className="stat-card">
     <div><span>{label}</span><strong>{value}</strong></div>
@@ -970,6 +993,8 @@ function App() {
     () => historyItems.filter(item => historyItemCategory(item) === 'active'),
     [historyItems]
   );
+  const queuedHistoryCount = activeHistoryItems.filter(item => item.status === 'queued').length;
+  const runningHistoryCount = activeHistoryItems.filter(item => item.status === 'running').length;
 
   const visibleHistoryItems = useMemo(() => {
     if (historyCategory === 'all') return historyItems;
@@ -2558,8 +2583,8 @@ function App() {
           {activeHistoryItems.length > 0 && (
             <div className="active-task-notice">
               <div>
-                <strong>{activeHistoryItems.length} 个任务正在执行</strong>
-                <span>页面关闭后任务仍在服务端继续运行，重新进入会自动同步进度。</span>
+                <strong>{activeHistoryItems.length} 个任务处理中</strong>
+                <span>{runningHistoryCount} 个执行中 · {queuedHistoryCount} 个排队中，页面关闭后任务仍会继续同步。</span>
               </div>
               <button type="button" onClick={() => setHistoryCategory('active')}>
                 查看处理中
@@ -2584,10 +2609,10 @@ function App() {
           </div>
           <div className="history-list">
             {visibleHistoryItems.length ? visibleHistoryItems.map(item => (
-              <div className="history-item" key={item.task_id}>
+              <div className={`history-item ${historyItemCategory(item)}`} key={item.task_id}>
                 <div>
                   <p><History size={14}/>{item.title || item.kind}</p>
-                  <span>{item.status === 'success' ? '完成' : item.status} · {item.task_id}</span>
+                  <span>{historyStatusDetail(item)}</span>
                 </div>
                 <div className="history-actions">
                   <button type="button" onClick={() => restoreHistoryItem(item)} disabled={item.status !== 'success'}>
