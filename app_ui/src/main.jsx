@@ -797,7 +797,7 @@ async function runBackgroundJob(path, payload, onProgress, options = {}) {
   while (true) {
     const elapsed = performance.now() - started;
     if (elapsed > timeoutMs) {
-      throw new Error('任务等待超时，请刷新任务记录后重试');
+      throw new Error('任务等待超时，请刷新作品记录后重试');
     }
     try {
       task = await getJSON(`/api/v1/jobs/${queued.task_id}`);
@@ -1277,7 +1277,7 @@ function App() {
       setSegments(data.segments || []);
       setExtract({
         state: 'done',
-        message: `提取完成，${(data.extracted_script || '').length} 字，${asSeconds(elapsedMs)}`
+        message: `提取完成，${(data.extracted_script || '').length} 字，${asSeconds(elapsedMs)}。下一步：到模块 2 生成新文案`
       });
       setRewrite({ state: 'idle', message: '' });
       setTts({ state: 'idle', message: '' });
@@ -1327,7 +1327,7 @@ function App() {
       setFinalScript(text);
       setRewrite({
         state: 'done',
-        message: `改写完成，${text.length} 字，${asSeconds(elapsedMs)}`
+        message: `改写完成，${text.length} 字，${asSeconds(elapsedMs)}。下一步：到模块 3 生成配音`
       });
       setTts({ state: 'idle', message: '' });
       setVideoEdit({ state: 'idle', message: '' });
@@ -1427,7 +1427,7 @@ function App() {
       setAudio(nextAudio);
       setTts({
         state: 'done',
-        message: `配音完成，${duration ? `${duration.toFixed(2)} 秒，` : ''}语速 ${Number(ttsSpeed).toFixed(1)}x，${asSeconds(elapsedMs)}`
+        message: `配音完成，${duration ? `${duration.toFixed(2)} 秒，` : ''}语速 ${Number(ttsSpeed).toFixed(1)}x，${asSeconds(elapsedMs)}。下一步：到模块 4 生成视频`
       });
       setVideoEdit({ state: 'idle', message: '' });
       setRenderedVideo(null);
@@ -1791,7 +1791,7 @@ function App() {
       });
       setVideoEdit({
           state: 'done',
-          message: `视频生成完成，${data.source_count || videoSources.length} 个素材${data.segment_count ? `，剪成 ${data.segment_count} 段` : ''}${data.clip_seconds ? `，每段约 ${data.clip_seconds} 秒` : ''}${data.subtitle_count ? `，${data.subtitle_count} 句字幕` : ''}，${data.duration ? `${data.duration} 秒，` : ''}${asSeconds(elapsedMs)}`
+          message: `视频生成完成，${data.source_count || videoSources.length} 个素材${data.segment_count ? `，剪成 ${data.segment_count} 段` : ''}${data.clip_seconds ? `，每段约 ${data.clip_seconds} 秒` : ''}${data.subtitle_count ? `，${data.subtitle_count} 句字幕` : ''}，${data.duration ? `${data.duration} 秒，` : ''}${asSeconds(elapsedMs)}。下一步：到模块 5 预览下载`
       });
       refreshHistory();
       refreshStorage();
@@ -1829,7 +1829,7 @@ function App() {
       const video = withAuthQuery(withCacheBust(previewVideoUrl(data)));
       setWav2lipVideo({ ...data, video_url: video });
       setRenderedVideo({ ...data, video_url: video });
-      setWav2lip({ state: 'done', message: `口型同步完成，${asSeconds(elapsedMs)}` });
+      setWav2lip({ state: 'done', message: `口型同步完成，${asSeconds(elapsedMs)}。下一步：到模块 5 预览下载` });
       refreshHistory();
       refreshStorage();
     } catch (err) {
@@ -1971,6 +1971,19 @@ function App() {
         </div>
       </header>
 
+      <div className="workflow-strip" aria-label="使用顺序">
+        <span>使用顺序</span>
+        <b>1 提取文案</b>
+        <i/>
+        <b>2 改写</b>
+        <i/>
+        <b>3 配音</b>
+        <i/>
+        <b>4 生成视频</b>
+        <i/>
+        <b>5 下载</b>
+      </div>
+
     {authOpen && (
       <AuthPanel
         form={authForm}
@@ -2035,13 +2048,14 @@ function App() {
         ) : (
         <>
         <Section num="1" title="输入素材" sub="视频链接" className="link-section" id="source">
+          <div className="module-help">粘贴视频链接，提取原视频文案。</div>
           <label className="field-label">视频链接 <i>*</i></label>
           <div className="link-input">
             <Link2 size={18}/>
             <input value={url} onChange={e => setUrl(e.target.value)} placeholder="粘贴抖音/B站/快手等视频链接" />
           </div>
           <button className="primary full" onClick={handleExtract} disabled={extract.state === 'loading'}>
-            {extract.state === 'loading' ? <Loader2 size={18}/> : <Scissors size={18}/>}提取文案
+            {extract.state === 'loading' ? <Loader2 size={18}/> : <Scissors size={18}/>}开始提取文案
           </button>
           <StatusLine state={extract.state} text={extract.message}/>
           <label>提取结果</label>
@@ -2061,6 +2075,7 @@ function App() {
         </Section>
 
         <Section num="2" title="AI 改写文案" sub={selectedStyle ? selectedStyle.name : '口播脚本'} className="rewrite-section" id="rewrite">
+        <div className="module-help">把提取文案改写成适合短视频口播的新文案。</div>
         <div className="rewrite-config">
           <div className="rewrite-config-head">
             <span><SlidersHorizontal size={15}/>改写风格</span>
@@ -2106,7 +2121,7 @@ function App() {
             disabled={rewrite.state === 'loading' || !extractedScript.trim()}
             title={extractedScript.trim() ? '开始改写提取文案' : '请先提取文案'}
           >
-            <Wand2 size={15}/>{extractedScript.trim() ? '开始改写' : '先提取文案'}
+            <Wand2 size={15}/>{extractedScript.trim() ? '生成新文案' : '先提取文案'}
           </button>
           <button onClick={() => copyText(finalScript)}><Copy size={15}/>复制</button>
         </div>
@@ -2119,6 +2134,7 @@ function App() {
         )}
 
         <Section num="3" title="音色设置" sub="接口语音合成" className="voice-section" id="voice">
+          <div className="module-help">选择音色，把模块 2 的文案生成配音。</div>
           <div className="voice-grid app-voice-grid">
             <div className="voice-controls">
               <label>
@@ -2211,7 +2227,7 @@ function App() {
 	          <StatusLine state={voiceManage.state} text={voiceManage.message}/>
 	          <StatusLine state={voiceUpload.state} text={voiceUpload.message}/>
 	          <button className="primary full" onClick={handleTts} disabled={tts.state === 'loading'}>
-	            {tts.state === 'loading' ? <Loader2 size={18}/> : <Mic2 size={18}/>}根据音色生成语音
+	            {tts.state === 'loading' ? <Loader2 size={18}/> : <Mic2 size={18}/>}生成配音
 	          </button>
 	          <StatusLine state={tts.state} text={tts.message}/>
           <OperationHint show={tts.state === 'loading'}>
@@ -2220,6 +2236,7 @@ function App() {
 	        </Section>
 
         <Section num="4" title="视频生成" sub="剪辑成片 · 口型同步" className="video-workflow-section" id="moviepy">
+          <div className="module-help">导入视频素材，用配音生成成片；需要人物对口型时切换到口型同步。</div>
           <div className="module-switch" role="tablist" aria-label="视频生成模式">
             <button
               type="button"
@@ -2227,6 +2244,7 @@ function App() {
               onClick={() => setActiveVideoMode('moviepy')}
             >
               <Film size={16}/>视频剪辑成片
+              <small>素材视频 + 配音生成短视频</small>
             </button>
             <button
               type="button"
@@ -2234,6 +2252,7 @@ function App() {
               onClick={() => setActiveVideoMode('lipsync')}
             >
               <AudioLines size={16}/>口型同步
+              <small>人物视频对上配音口型</small>
             </button>
           </div>
           {activeVideoMode === 'moviepy' ? (
@@ -2319,7 +2338,7 @@ function App() {
                         <label>当前配音</label>
                         <div className="path-box moviepy-audio-source">{audio?.audio_path || audio?.audio_url || '等待配音'}</div>
 	                        <button className="primary full" onClick={handleRenderVideo} disabled={videoEdit.state === 'loading'}>
-	                          {videoEdit.state === 'loading' ? <Loader2 size={18}/> : <Film size={18}/>}用当前配音成片
+	                          {videoEdit.state === 'loading' ? <Loader2 size={18}/> : <Film size={18}/>}生成视频
 	                        </button>
 	                        <StatusLine state={videoEdit.state} text={videoEdit.message}/>
                         <OperationHint show={videoEdit.state === 'loading'}>
@@ -2384,6 +2403,7 @@ function App() {
         </Section>
 
         <Section num="5" title="成片预览" sub="视频下载" className="result-section" id="result">
+          <div className="module-help">预览并下载最终视频。</div>
           {renderedVideo ? (
             <div className="video-result-card">
               <video controls src={renderedVideo.video_url} />
@@ -2415,7 +2435,8 @@ function App() {
           )}
 	        </Section>
 
-        <Section num="6" title="任务记录" sub="历史与存储" className="history-section" id="history">
+        <Section num="6" title="作品记录" sub="历史与存储" className="history-section" id="history">
+          <div className="module-help">查看历史作品，恢复到页面后继续预览或下载。</div>
           <div className="storage-card">
             <div>
               <p><Database size={15}/>本地存储</p>
@@ -2429,7 +2450,7 @@ function App() {
           <StatusLine state={storageState.state} text={storageState.message}/>
           <div className="usage-grid">
             <div className="usage-card">
-              <span>我的任务</span>
+              <span>我的作品</span>
               <strong>{usageStats ? usageStats.task_count : '-'}</strong>
             </div>
             <div className="usage-card">
@@ -2442,7 +2463,7 @@ function App() {
               <em>{storageStats ? queueLabel : '正在读取'}</em>
 	            </div>
             <div className={`usage-card ${queuedTasks || runningTasks ? 'busy' : ''}`}>
-              <span>任务状态</span>
+              <span>生成状态</span>
               <strong>{queuedTasks || runningTasks ? `${runningTasks + queuedTasks} 个处理中` : '空闲'}</strong>
               <em>{failedTasks ? `${failedTasks} 个失败任务可重试` : '没有等待任务'}</em>
 	            </div>
@@ -2456,7 +2477,7 @@ function App() {
                 </div>
                 <div className="history-actions">
                   <button type="button" onClick={() => restoreHistoryItem(item)} disabled={item.status !== 'success'}>
-                    载入
+                    恢复到页面
                   </button>
                   {item.status === 'queued' && (
                     <button type="button" onClick={() => cancelHistoryItem(item)}>
@@ -2470,7 +2491,7 @@ function App() {
                   )}
                 </div>
               </div>
-            )) : <div className="empty-history">暂无任务记录</div>}
+            )) : <div className="empty-history">暂无作品记录</div>}
           </div>
         </Section>
 

@@ -266,6 +266,36 @@ select:focus-visible {
   margin-top: 14px;
 }
 
+.workflow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workflow-strip span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.workflow-strip b {
+  color: var(--soft);
+  font-weight: 700;
+}
+
+.workflow-strip i {
+  width: 14px;
+  height: 1px;
+  background: var(--line-strong);
+}
+
 .factory-layout {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -478,6 +508,13 @@ select:focus-visible {
   margin-top: 3px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.module-help {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .field-label,
@@ -1006,6 +1043,22 @@ select {
   justify-content: center;
   gap: 7px;
   font-weight: 800;
+  flex-direction: column;
+  line-height: 1.2;
+  padding: 7px 8px;
+  text-align: center;
+}
+
+.module-switch button svg {
+  margin-bottom: 1px;
+}
+
+.module-switch button small {
+  display: block;
+  color: inherit;
+  opacity: .72;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .module-switch button.active {
