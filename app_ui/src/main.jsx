@@ -242,6 +242,14 @@ function previewVideoUrl(result = {}) {
   return result.external_video_url || result.video_object_url || result.object_url || result.outputVideoUrl || result.output_video_url || result.video_url || '';
 }
 
+function previewAudioUrl(result = {}) {
+  return result.audio_object_url || result.object_url || result.audio_url || '';
+}
+
+function previewSubtitleUrl(result = {}) {
+  return result.subtitle_object_url || result.subtitle_url || '';
+}
+
 function Stat({ label, value, icon, tone }) {
   return <div className="stat-card">
     <div><span>{label}</span><strong>{value}</strong></div>
@@ -1416,7 +1424,7 @@ function App() {
         task => setTts({ state: 'loading', message: progressMessage('正在生成配音', task) }),
         { timeoutMs: 6 * 60 * 1000 }
       );
-      const audioUrl = withAuthQuery(`${data.audio_url}?t=${Date.now()}`);
+      const audioUrl = withAuthQuery(withCacheBust(previewAudioUrl(data)));
       const duration = await readAudioDuration(audioUrl);
       const nextAudio = {
         ...data,
@@ -1484,7 +1492,7 @@ function App() {
       );
       setVoicePreviewAudio({
         title: '样音试听',
-        audio_url: withAuthQuery(`${data.audio_url || sampleAudioUrl}?t=${Date.now()}`)
+        audio_url: withAuthQuery(withCacheBust(previewAudioUrl(data) || sampleAudioUrl))
       });
       setVoicePreview({
         state: 'done',
@@ -1783,11 +1791,11 @@ function App() {
         task => setVideoEdit({ state: 'loading', message: progressMessage('正在剪辑合成视频', task) }),
         { timeoutMs: 20 * 60 * 1000 }
       );
-      const videoUrl = withAuthQuery(`${data.outputVideoUrl || data.video_url}?t=${Date.now()}`);
+      const videoUrl = withAuthQuery(withCacheBust(previewVideoUrl(data)));
       setRenderedVideo({
         ...data,
         video_url: videoUrl,
-        subtitle_url: data.subtitle_url ? withAuthQuery(`${data.subtitle_url}?t=${Date.now()}`) : data.subtitle_url
+        subtitle_url: previewSubtitleUrl(data) ? withAuthQuery(withCacheBust(previewSubtitleUrl(data))) : ''
       });
       setVideoEdit({
           state: 'done',
@@ -1852,21 +1860,21 @@ function App() {
       setFinalScript(result.final_script);
       setRewrite({ state: 'done', message: `已载入历史改写，${result.final_script.length} 字` });
     }
-    if (item.kind === 'tts' && result.audio_url) {
+    if (item.kind === 'tts' && previewAudioUrl(result)) {
       const nextAudio = {
         ...result,
         text: result.text || finalScript,
-        audio_url: withAuthQuery(`${result.audio_url}?t=${Date.now()}`)
+        audio_url: withAuthQuery(withCacheBust(previewAudioUrl(result)))
       };
       setAudio(nextAudio);
       setTts({ state: 'done', message: '已载入历史配音' });
     }
-    if (item.kind === 'video' && (result.video_url || result.outputVideoUrl)) {
-      const videoUrl = withAuthQuery(`${result.video_url || result.outputVideoUrl}?t=${Date.now()}`);
+    if (item.kind === 'video' && previewVideoUrl(result)) {
+      const videoUrl = withAuthQuery(withCacheBust(previewVideoUrl(result)));
       setRenderedVideo({
         ...result,
         video_url: videoUrl,
-        subtitle_url: result.subtitle_url ? withAuthQuery(`${result.subtitle_url}?t=${Date.now()}`) : result.subtitle_url
+        subtitle_url: previewSubtitleUrl(result) ? withAuthQuery(withCacheBust(previewSubtitleUrl(result))) : ''
       });
       setVideoEdit({ state: 'done', message: '已载入历史成片' });
     }

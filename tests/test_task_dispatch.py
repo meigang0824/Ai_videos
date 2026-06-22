@@ -143,6 +143,96 @@ def test_wav2lip_task_preserves_external_video_url(tmp_path, monkeypatch):
     assert result["size_bytes"] == 0
 
 
+def test_wav2lip_task_removes_local_output_after_object_upload(tmp_path, monkeypatch):
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    source_video = tmp_path / "source.mp4"
+    source_audio = tmp_path / "audio.wav"
+    source_video.write_bytes(b"video")
+    source_audio.write_bytes(b"audio")
+
+    def fake_resolve_media(value, base_url, suffix):
+        return source_video if suffix == ".mp4" else source_audio
+
+    def fake_lip_sync(video_path, audio_path, output_path, options):
+        output_path.write_bytes(b"mp4")
+        return {"video_path": str(output_path)}
+
+    def fake_upload(path, *, user_id, purpose, task_id):
+        assert path.exists()
+        return {
+            "provider": "aliyun_oss",
+            "key": f"cosyvoice/users/{user_id}/{purpose}/{task_id}.mp4",
+            "url": f"https://oss.example.com/{task_id}.mp4",
+        }
+
+    monkeypatch.setattr(api_server, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(api_server, "_resolve_media_to_local", fake_resolve_media)
+    monkeypatch.setattr(api_server, "call_lip_sync", fake_lip_sync)
+    monkeypatch.setattr(api_server, "_upload_to_object_storage", fake_upload)
+
+    result = api_server._execute_wav2lip_task(
+        {
+            "task_id": "wav2lip_delete_after_upload",
+            "user_id": "user-1",
+            "payload": {
+                "videoUrl": "https://oss.example.com/source.mp4",
+                "audioUrl": "https://oss.example.com/audio.wav",
+            },
+        }
+    )
+
+    output_path = output_dir / "wav2lip_delete_after_upload_wav2lip_video.mp4"
+    assert not output_path.exists()
+    assert result["video_path"] == ""
+    assert result["video_object_url"] == "https://oss.example.com/wav2lip_delete_after_upload.mp4"
+    assert result["video_url"] == "/api/v1/wav2lip/wav2lip_delete_after_upload"
+
+
+def test_video_task_removes_local_outputs_after_object_upload(tmp_path, monkeypatch):
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+
+    def fake_render_video(data, base_url):
+        video_path = output_dir / "moviepy_video.mp4"
+        subtitle_path = output_dir / "moviepy.srt"
+        video_path.write_bytes(b"mp4")
+        subtitle_path.write_text("1\n00:00:00,000 --> 00:00:01,000\nhello\n", encoding="utf-8")
+        return {"video_path": str(video_path), "subtitle_path": str(subtitle_path)}
+
+    def fake_upload(path, *, user_id, purpose, task_id):
+        assert path.exists()
+        suffix = path.suffix.lstrip(".")
+        return {
+            "provider": "aliyun_oss",
+            "key": f"cosyvoice/users/{user_id}/{purpose}/{task_id}.{suffix}",
+            "url": f"https://oss.example.com/{purpose}/{task_id}.{suffix}",
+        }
+
+    monkeypatch.setattr(api_server, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(api_server, "load_service_config", lambda mask_secret=True: {})
+    monkeypatch.setattr(api_server, "render_video", fake_render_video)
+    monkeypatch.setattr(api_server, "_upload_to_object_storage", fake_upload)
+
+    result = api_server._execute_video_task(
+        {
+            "task_id": "video_delete_after_upload",
+            "user_id": "user-1",
+            "payload": {
+                "videoUrl": "https://oss.example.com/source.mp4",
+                "audioUrl": "https://oss.example.com/audio.wav",
+            },
+        }
+    )
+
+    assert not (output_dir / "moviepy_video.mp4").exists()
+    assert not (output_dir / "moviepy.srt").exists()
+    assert result["video_path"] == ""
+    assert result["subtitle_path"] == ""
+    assert result["video_object_url"] == "https://oss.example.com/outputs/video/video_delete_after_upload.mp4"
+    assert result["subtitle_object_url"] == "https://oss.example.com/outputs/subtitles/video_delete_after_upload.srt"
+
+
 def test_orphaned_queued_task_is_marked_failed(tmp_path, monkeypatch):
     task_store = TaskStore(tmp_path / "task_store.sqlite3")
     monkeypatch.setattr(api_server, "task_store", task_store)

@@ -374,3 +374,40 @@ def test_tts_task_resolves_object_voice_from_ref_wav_without_voice_id(tmp_path, 
     assert calls["voice_ref_wav"] is not None
     assert calls["voice_ref_bytes"] == b"RIFFremote"
     assert result["audio_url"] == "/api/v1/audio/tts_cloud_voice"
+
+
+def test_tts_task_removes_local_output_after_object_upload(tmp_path, monkeypatch):
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    uploads = []
+
+    def fake_call_tts(text, output_path, *, voice_id=None, voice_ref_wav=None, voice_ref_text=None, speed=1.0):
+        output_path.write_bytes(b"RIFFgenerated")
+        return output_path
+
+    def fake_upload(path, *, user_id, purpose, task_id):
+        uploads.append({"path": path, "exists_during_upload": path.exists(), "purpose": purpose})
+        return {
+            "provider": "aliyun_oss",
+            "key": f"cosyvoice/users/{user_id}/{purpose}/{task_id}.wav",
+            "url": f"https://oss.example.com/{task_id}.wav",
+        }
+
+    monkeypatch.setattr(api_server, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(api_server, "call_tts", fake_call_tts)
+    monkeypatch.setattr(api_server, "_upload_to_object_storage", fake_upload)
+
+    result = api_server._execute_tts_task(
+        {
+            "task_id": "tts_delete_after_upload",
+            "user_id": "user-1",
+            "payload": {"text": "上传后删除", "speed": 1.0},
+        }
+    )
+
+    output_path = output_dir / "tts_delete_after_upload.wav"
+    assert uploads == [{"path": output_path, "exists_during_upload": True, "purpose": "outputs/audio"}]
+    assert not output_path.exists()
+    assert result["audio_path"] == ""
+    assert result["audio_object_url"] == "https://oss.example.com/tts_delete_after_upload.wav"
+    assert result["audio_url"] == "/api/v1/audio/tts_delete_after_upload"

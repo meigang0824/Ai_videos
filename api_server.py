@@ -270,13 +270,24 @@ async def _upload_voice_file_to_object_storage(file: UploadFile, user_id: str) -
 
 def _apply_object_result(target: dict[str, Any], field: str, upload: dict[str, Any] | None):
     if not upload:
-        return
+        return False
     target[f"{field}_storage_provider"] = upload.get("provider") or "aliyun_oss"
     target[f"{field}_object_key"] = upload.get("key") or ""
     if upload.get("url"):
         target[f"{field}_object_url"] = upload.get("url")
     if upload.get("error"):
         target[f"{field}_object_error"] = upload.get("error")
+    return bool((upload.get("key") or upload.get("url")) and not upload.get("error"))
+
+
+def _remove_local_output_after_object_upload(path: Path, upload: dict[str, Any] | None) -> bool:
+    if not upload or upload.get("error") or not (upload.get("key") or upload.get("url")):
+        return False
+    try:
+        path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
 
 
 def _sync_voice_object_storage(voice_id: str, user_id: str, path_value: str):
@@ -840,11 +851,10 @@ def _execute_tts_task(task: dict[str, Any]) -> dict[str, Any]:
         "audio_url": _public_url("audio", task_id),
         "size_bytes": _file_size(output_path),
     }
-    _apply_object_result(
-        result,
-        "audio",
-        _upload_to_object_storage(output_path, user_id=user_id, purpose="outputs/audio", task_id=task_id),
-    )
+    audio_upload = _upload_to_object_storage(output_path, user_id=user_id, purpose="outputs/audio", task_id=task_id)
+    if _apply_object_result(result, "audio", audio_upload):
+        if _remove_local_output_after_object_upload(output_path, audio_upload):
+            result["audio_path"] = ""
     return result
 
 
@@ -880,26 +890,24 @@ def _execute_video_task(task: dict[str, Any]) -> dict[str, Any]:
     video_path = Path(video_path_value) if video_path_value else None
     if video_path and video_path.exists():
         result["size_bytes"] = _file_size(video_path)
-        _apply_object_result(
-            result,
-            "video",
-            _upload_to_object_storage(video_path, user_id=user_id, purpose="outputs/video", task_id=task_id),
-        )
+        video_upload = _upload_to_object_storage(video_path, user_id=user_id, purpose="outputs/video", task_id=task_id)
+        if _apply_object_result(result, "video", video_upload):
+            if _remove_local_output_after_object_upload(video_path, video_upload):
+                result["video_path"] = ""
     if result.get("subtitle_path"):
         result["subtitle_url"] = _public_url("subtitle", task_id)
         subtitle_path_value = result.get("subtitle_path")
         subtitle_path = Path(subtitle_path_value) if subtitle_path_value else None
         if subtitle_path and subtitle_path.exists():
-            _apply_object_result(
-                result,
-                "subtitle",
-                _upload_to_object_storage(
-                    subtitle_path,
-                    user_id=user_id,
-                    purpose="outputs/subtitles",
-                    task_id=task_id,
-                ),
+            subtitle_upload = _upload_to_object_storage(
+                subtitle_path,
+                user_id=user_id,
+                purpose="outputs/subtitles",
+                task_id=task_id,
             )
+            if _apply_object_result(result, "subtitle", subtitle_upload):
+                if _remove_local_output_after_object_upload(subtitle_path, subtitle_upload):
+                    result["subtitle_path"] = ""
     return result
 
 
@@ -951,11 +959,16 @@ def _execute_wav2lip_task(task: dict[str, Any]) -> dict[str, Any]:
     if external_video_url:
         result["external_video_url"] = external_video_url
     if has_local_video:
-        _apply_object_result(
-            result,
-            "video",
-            _upload_to_object_storage(Path(lip_video_path), user_id=user_id, purpose="outputs/wav2lip", task_id=task_id),
+        local_lip_video_path = Path(lip_video_path)
+        video_upload = _upload_to_object_storage(
+            local_lip_video_path,
+            user_id=user_id,
+            purpose="outputs/wav2lip",
+            task_id=task_id,
         )
+        if _apply_object_result(result, "video", video_upload):
+            if _remove_local_output_after_object_upload(local_lip_video_path, video_upload):
+                result["video_path"] = ""
     return result
 
 
