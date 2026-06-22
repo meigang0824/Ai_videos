@@ -81,6 +81,17 @@ const TTS_SPEED_OPTIONS = [
 ];
 
 const PREVIEWABLE_MEDIA_RE = /^(https?:|\/api\/|\/assets\/)/i;
+const HISTORY_LIMIT = 200;
+const HIDDEN_HISTORY_PREFIXES = [['di', 'gi', 'tal_'].join(''), ['kl', 'ing_'].join('')];
+const HISTORY_CATEGORIES = [
+  { id: 'all', label: '全部' },
+  { id: 'video', label: '成片' },
+  { id: 'wav2lip', label: '口型' },
+  { id: 'tts', label: '配音' },
+  { id: 'script', label: '文案' },
+  { id: 'active', label: '处理中' },
+  { id: 'failed', label: '失败' }
+];
 
 const DEFAULT_REWRITE_OPTIONS = {
   styles: [
@@ -248,6 +259,16 @@ function previewAudioUrl(result = {}) {
 
 function previewSubtitleUrl(result = {}) {
   return result.subtitle_object_url || result.subtitle_url || '';
+}
+
+function historyItemCategory(item = {}) {
+  if (item.status === 'queued' || item.status === 'running') return 'active';
+  if (item.status === 'failed' || item.status === 'canceled') return 'failed';
+  if (item.kind === 'video') return 'video';
+  if (item.kind === 'wav2lip') return 'wav2lip';
+  if (item.kind === 'tts') return 'tts';
+  if (item.kind === 'extract' || item.kind === 'rewrite') return 'script';
+  return 'other';
 }
 
 function Stat({ label, value, icon, tone }) {
@@ -886,6 +907,7 @@ function App() {
   const [wav2lipAudioUrl, setWav2lipAudioUrl] = useState('');
   const [wav2lipVideo, setWav2lipVideo] = useState(null);
   const [historyItems, setHistoryItems] = useState([]);
+  const [historyCategory, setHistoryCategory] = useState('all');
   const [storageStats, setStorageStats] = useState(null);
   const [usageStats, setUsageStats] = useState(null);
   const [serviceConfig, setServiceConfig] = useState(DEFAULT_SERVICE_CONFIG);
@@ -1051,6 +1073,22 @@ function App() {
     audioDuration: audio?.duration_sec ? `${audio.duration_sec}s` : '-'
   }), [extractedScript, finalScript, segments, audio]);
 
+  const historyCategoryCounts = useMemo(() => {
+    const counts = { all: historyItems.length, video: 0, wav2lip: 0, tts: 0, script: 0, active: 0, failed: 0 };
+    historyItems.forEach(item => {
+      const category = historyItemCategory(item);
+      if (Object.prototype.hasOwnProperty.call(counts, category)) {
+        counts[category] += 1;
+      }
+    });
+    return counts;
+  }, [historyItems]);
+
+  const visibleHistoryItems = useMemo(() => {
+    if (historyCategory === 'all') return historyItems;
+    return historyItems.filter(item => historyItemCategory(item) === historyCategory);
+  }, [historyCategory, historyItems]);
+
   const taskStatus = storageStats?.task_status || {};
   const queuedTasks = Number(taskStatus.queued || 0);
   const runningTasks = Number(taskStatus.running || 0);
@@ -1063,9 +1101,8 @@ function App() {
 
   async function refreshHistory() {
     try {
-      const data = await getJSON('/api/v1/history?limit=12');
-      const removedPrefixes = [['di', 'gi', 'tal_'].join(''), ['kl', 'ing_'].join('')];
-      setHistoryItems((data.tasks || []).filter(item => !removedPrefixes.some(prefix => item.kind?.startsWith(prefix))));
+      const data = await getJSON(`/api/v1/history?limit=${HISTORY_LIMIT}`);
+      setHistoryItems((data.tasks || []).filter(item => !HIDDEN_HISTORY_PREFIXES.some(prefix => item.kind?.startsWith(prefix))));
     } catch {
       setHistoryItems([]);
     }
@@ -2476,8 +2513,24 @@ function App() {
               <em>{failedTasks ? `${failedTasks} 个失败任务可重试` : '没有等待任务'}</em>
 	            </div>
 	          </div>
+          <div className="history-filter">
+            {HISTORY_CATEGORIES.map(category => (
+              <button
+                type="button"
+                key={category.id}
+                className={historyCategory === category.id ? 'active' : ''}
+                onClick={() => setHistoryCategory(category.id)}
+              >
+                {category.label}
+                <span>{historyCategoryCounts[category.id] || 0}</span>
+              </button>
+            ))}
+          </div>
+          <div className="history-summary">
+            显示 {visibleHistoryItems.length} / {historyItems.length} 条
+          </div>
           <div className="history-list">
-            {historyItems.length ? historyItems.map(item => (
+            {visibleHistoryItems.length ? visibleHistoryItems.map(item => (
               <div className="history-item" key={item.task_id}>
                 <div>
                   <p><History size={14}/>{item.title || item.kind}</p>
@@ -2499,7 +2552,7 @@ function App() {
                   )}
                 </div>
               </div>
-            )) : <div className="empty-history">暂无作品记录</div>}
+            )) : <div className="empty-history">当前分类暂无作品记录</div>}
           </div>
         </Section>
 

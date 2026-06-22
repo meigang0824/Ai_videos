@@ -1846,6 +1846,55 @@ select {
   gap: 8px;
 }
 
+.history-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.history-filter button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-filter button.active {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fffdf7;
+}
+
+.history-filter button span {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  color: inherit;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.history-filter button:not(.active) span {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.history-summary {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .usage-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
