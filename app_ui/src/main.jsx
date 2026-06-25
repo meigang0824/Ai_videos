@@ -82,6 +82,9 @@ const TTS_SPEED_OPTIONS = [
 
 const PREVIEWABLE_MEDIA_RE = /^(https?:|\/api\/|\/assets\/)/i;
 const HISTORY_LIMIT = 200;
+const MAX_VOICE_DURATION_SECONDS = 60;
+const MAX_VIDEO_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_MATERIALS = 8;
 const HIDDEN_HISTORY_PREFIXES = [['di', 'gi', 'tal_'].join(''), ['kl', 'ing_'].join('')];
 const HISTORY_CATEGORIES = [
   { id: 'all', label: '全部' },
@@ -259,6 +262,19 @@ function previewAudioUrl(result = {}) {
 
 function previewSubtitleUrl(result = {}) {
   return result.subtitle_object_url || result.subtitle_url || '';
+}
+
+function readLocalAudioDuration(file) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio(url);
+    const cleanup = value => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    audio.addEventListener('loadedmetadata', () => cleanup(audio.duration), { once: true });
+    audio.addEventListener('error', () => cleanup(null), { once: true });
+  });
 }
 
 function historyItemCategory(item = {}) {
@@ -1622,6 +1638,11 @@ function App() {
       setVoiceUpload({ state: 'error', message: `${file.name} 不是支持的录音文件` });
       return;
     }
+    const duration = await readLocalAudioDuration(file);
+    if (Number.isFinite(duration) && duration > MAX_VOICE_DURATION_SECONDS) {
+      setVoiceUpload({ state: 'error', message: `导入音色不能超过 ${MAX_VOICE_DURATION_SECONDS} 秒，当前约 ${Math.ceil(duration)} 秒` });
+      return;
+    }
 
     const started = performance.now();
     const form = new FormData();
@@ -1710,6 +1731,21 @@ function App() {
     });
     if (invalidFile) {
       setVideoUpload({ state: 'error', message: `${invalidFile.name} 不是支持的视频文件` });
+      return;
+    }
+    const oversizedFile = files.find(file => file.size > MAX_VIDEO_UPLOAD_BYTES);
+    if (oversizedFile) {
+      setVideoUpload({ state: 'error', message: `${oversizedFile.name} 超过 10MB，单个视频素材不能超过 10MB` });
+      return;
+    }
+    const availableSlots = Math.max(0, MAX_VIDEO_MATERIALS - uploadedVideos.length);
+    if (files.length > availableSlots) {
+      setVideoUpload({
+        state: 'error',
+        message: uploadedVideos.length
+          ? `最多支持 ${MAX_VIDEO_MATERIALS} 个视频素材，当前已有 ${uploadedVideos.length} 个，还能导入 ${availableSlots} 个`
+          : `最多支持 ${MAX_VIDEO_MATERIALS} 个视频素材`
+      });
       return;
     }
 
@@ -1811,6 +1847,10 @@ function App() {
     const allowed = /\.(mp4|mov|m4v|avi|mkv|webm)$/i.test(file.name);
     if (!file.type.startsWith('video/') && !allowed) {
       setWav2lipUpload({ state: 'error', message: `${file.name} 不是支持的视频文件` });
+      return;
+    }
+    if (file.size > MAX_VIDEO_UPLOAD_BYTES) {
+      setWav2lipUpload({ state: 'error', message: `${file.name} 超过 10MB，口型同步视频不能超过 10MB` });
       return;
     }
 

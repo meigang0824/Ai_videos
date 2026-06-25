@@ -46,6 +46,9 @@ FRONTEND_DIST = BASE_DIR / "app_ui" / "dist"
 ALLOWED_AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".webm"}
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 ALLOWED_TRANSCRIBE_SUFFIXES = ALLOWED_AUDIO_SUFFIXES | ALLOWED_VIDEO_SUFFIXES
+MAX_VOICE_DURATION_SECONDS = 60
+MAX_VIDEO_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_VIDEO_MATERIALS = 8
 
 def _cors_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
@@ -223,6 +226,35 @@ def _content_type(path: Path) -> str:
     return "application/octet-stream"
 
 
+def _media_duration_seconds(path: Path) -> float | None:
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return float((probe.stdout or "").strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _ensure_voice_duration(path: Path):
+    duration = _media_duration_seconds(path)
+    if duration is not None and duration > MAX_VOICE_DURATION_SECONDS:
+        raise HTTPException(status_code=413, detail="音色录音不能超过 60 秒")
+
+
 def _upload_to_object_storage(
     local_path: Path,
     *,
@@ -247,26 +279,29 @@ async def _upload_voice_file_to_object_storage(file: UploadFile, user_id: str) -
     filename = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}{suffix}"
     key = object_storage.key(user_id, "voices/audio", filename)
     size = 0
-    spool = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
+    temp_path: Path | None = None
     try:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
-                raise HTTPException(status_code=413, detail="文件太大")
-            spool.write(chunk)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_path = Path(temp_file.name)
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="文件太大")
+                temp_file.write(chunk)
         if size < 1:
             raise HTTPException(status_code=400, detail="文件为空")
-        upload = object_storage.upload_fileobj(spool, key, content_type=_content_type(Path(filename)))
+        _ensure_voice_duration(temp_path)
+        upload = object_storage.upload_file(temp_path, key, content_type=_content_type(Path(filename)))
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"音色上传 OSS 失败：{exc}") from exc
     finally:
-        spool.close()
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
     if not upload or upload.get("error"):
         raise HTTPException(status_code=502, detail=upload.get("error") if upload else "音色上传 OSS 失败")
     return filename, size, upload
-
 
 def _apply_object_result(target: dict[str, Any], field: str, upload: dict[str, Any] | None):
     if not upload:
@@ -1643,6 +1678,9 @@ def video_compose_start(payload: VideoPayload, request: Request, background_task
 
 
 def _start_video_compose(payload: VideoPayload, request: Request, background_tasks: BackgroundTasks):
+    video_urls = [item for item in (payload.videoUrls or []) if str(item or "").strip()]
+    if len(video_urls) > MAX_VIDEO_MATERIALS:
+        raise HTTPException(status_code=400, detail=f"视频素材最多支持 {MAX_VIDEO_MATERIALS} 个")
     task_id = _task_id(payload.taskId, "video")
     user_id = _request_user_id(request)
     data = payload.model_dump()
@@ -1660,7 +1698,14 @@ def lip_sync_start(payload: LipSyncPayload, request: Request, background_tasks: 
     return _enqueue(background_tasks, task_id, "wav2lip", "口型同步", data, user_id=user_id)
 
 
-async def _save_upload(file: UploadFile, target_dir: Path, allowed_suffixes: set[str]) -> tuple[Path, int]:
+async def _save_upload(
+    file: UploadFile,
+    target_dir: Path,
+    allowed_suffixes: set[str],
+    *,
+    max_bytes: int = MAX_UPLOAD_BYTES,
+    too_large_detail: str = "文件太大",
+) -> tuple[Path, int]:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in allowed_suffixes:
         raise HTTPException(status_code=400, detail="文件格式不支持")
@@ -1671,9 +1716,9 @@ async def _save_upload(file: UploadFile, target_dir: Path, allowed_suffixes: set
     with open(path, "wb") as f:
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
+            if size > max_bytes:
                 path.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="文件太大")
+                raise HTTPException(status_code=413, detail=too_large_detail)
             f.write(chunk)
     return path, size
 
@@ -1711,7 +1756,13 @@ async def script_extract_upload(
 @app.post("/api/v1/upload-video")
 async def upload_video(request: Request, file: UploadFile = File(...)):
     user_id = _request_user_id(request)
-    path, size = await _save_upload(file, UPLOAD_DIR, ALLOWED_VIDEO_SUFFIXES)
+    path, size = await _save_upload(
+        file,
+        UPLOAD_DIR,
+        ALLOWED_VIDEO_SUFFIXES,
+        max_bytes=MAX_VIDEO_UPLOAD_BYTES,
+        too_large_detail="视频文件不能超过 10MB",
+    )
     metadata = {
         "name": file.filename or path.name,
         "size_bytes": size,
@@ -1736,6 +1787,11 @@ async def upload_voice(request: Request, background_tasks: BackgroundTasks, file
         ref_wav = f"voices/{filename}"
     else:
         path, size = await _save_upload(file, VOICE_DIR, ALLOWED_AUDIO_SUFFIXES)
+        try:
+            _ensure_voice_duration(path)
+        except HTTPException:
+            path.unlink(missing_ok=True)
+            raise
         voice_id = path.stem
         ref_wav = _relative_to_base(path)
         upload = None

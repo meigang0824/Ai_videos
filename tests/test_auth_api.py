@@ -274,11 +274,10 @@ def test_upload_voice_uses_object_storage_without_persistent_local_file(tmp_path
     voice_dir.mkdir()
     uploaded = {}
 
-    def fake_upload_fileobj(fileobj, key, content_type=None):
+    def fake_upload_file(path, key, content_type=None):
         uploaded["key"] = key
         uploaded["content_type"] = content_type
-        fileobj.seek(0)
-        uploaded["content"] = fileobj.read()
+        uploaded["content"] = Path(path).read_bytes()
         return {"provider": "aliyun_oss", "key": key, "url": f"https://oss.example/{key}"}
 
     monkeypatch.setattr(api_server, "auth_store", auth_store)
@@ -286,7 +285,7 @@ def test_upload_voice_uses_object_storage_without_persistent_local_file(tmp_path
     monkeypatch.setattr(api_server, "VOICE_DIR", voice_dir)
     monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
     monkeypatch.setattr(api_server.object_storage, "enabled", lambda: True)
-    monkeypatch.setattr(api_server.object_storage, "upload_fileobj", fake_upload_fileobj)
+    monkeypatch.setattr(api_server.object_storage, "upload_file", fake_upload_file)
 
     client = TestClient(api_server.app)
     voice_user = auth_store.create_user("oss_voice_user", "TestPass12345", role="user")
@@ -313,6 +312,63 @@ def test_upload_voice_uses_object_storage_without_persistent_local_file(tmp_path
     assert uploaded["content"] == b"RIFFcloud"
     assert uploaded["content_type"] == "audio/wav"
     assert list(voice_dir.iterdir()) == []
+
+
+def test_upload_voice_rejects_recording_longer_than_60_seconds(tmp_path, monkeypatch):
+    auth_store = AuthStore(tmp_path / "auth.sqlite3")
+    voice_store = VoiceStore(tmp_path / "voices.sqlite3", migrate=False)
+    voice_dir = tmp_path / "voices"
+    voice_dir.mkdir()
+
+    monkeypatch.setattr(api_server, "auth_store", auth_store)
+    monkeypatch.setattr(api_server, "voice_store", voice_store)
+    monkeypatch.setattr(api_server, "VOICE_DIR", voice_dir)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+    monkeypatch.setattr(api_server.object_storage, "enabled", lambda: False)
+    monkeypatch.setattr(api_server, "_media_duration_seconds", lambda path: 61.0)
+
+    client = TestClient(api_server.app)
+    voice_user = auth_store.create_user("long_voice_user", "TestPass12345", role="user")
+    registered = client.post(
+        "/api/v1/auth/login",
+        json={"username": voice_user["username"], "password": "TestPass12345"},
+    ).json()
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    response = client.post(
+        "/api/v1/upload-voice",
+        headers=headers,
+        files={"file": ("long.wav", b"RIFFlong", "audio/wav")},
+    )
+
+    assert response.status_code == 413
+    assert "60 秒" in response.json()["detail"]
+    assert list(voice_dir.iterdir()) == []
+
+
+def test_upload_video_rejects_file_larger_than_10mb(tmp_path, monkeypatch):
+    auth_store = AuthStore(tmp_path / "auth.sqlite3")
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+
+    monkeypatch.setattr(api_server, "auth_store", auth_store)
+    monkeypatch.setattr(api_server, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", True)
+
+    client = TestClient(api_server.app)
+    user = auth_store.create_user("video_limit_user", "TestPass12345", role="user")
+    registered = client.post("/api/v1/auth/login", json={"username": user["username"], "password": "TestPass12345"}).json()
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    response = client.post(
+        "/api/v1/upload-video",
+        headers=headers,
+        files={"file": ("large.mp4", b"0" * (10 * 1024 * 1024 + 1), "video/mp4")},
+    )
+
+    assert response.status_code == 413
+    assert "10MB" in response.json()["detail"]
+    assert list(upload_dir.iterdir()) == []
 
 
 def test_tts_task_resolves_object_voice_from_ref_wav_without_voice_id(tmp_path, monkeypatch):

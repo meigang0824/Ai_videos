@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import api_server
+from fastapi.testclient import TestClient
 from pipeline.database import uploads_table
 from pipeline.task_store import TaskStore
 
@@ -502,6 +503,25 @@ def test_video_compose_uses_signed_oss_urls_for_uploaded_video_and_audio(tmp_pat
     assert item is not None
     assert item["status"] == "success"
     assert item["result"]["compose_method"] == "external_video_compose"
+
+
+def test_video_compose_rejects_more_than_8_materials(tmp_path, monkeypatch):
+    task_store = TaskStore(tmp_path / "task_store.sqlite3")
+    monkeypatch.setattr(api_server, "task_store", task_store)
+    monkeypatch.setattr(api_server, "AUTH_REQUIRED", False)
+
+    client = TestClient(api_server.app)
+    response = client.post(
+        "/api/v1/edit-video/start",
+        json={
+            "videoUrls": [f"https://example.com/{index}.mp4" for index in range(9)],
+            "audioUrl": "https://example.com/audio.wav",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "最多支持 8 个" in response.json()["detail"]
+    assert task_store.list_tasks(limit=10) == []
 
 
 def test_record_upload_persists_object_storage_fields(tmp_path):
